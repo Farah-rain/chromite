@@ -83,7 +83,28 @@ def predict_all_levels(df):
     st.subheader("🧾 预测结果：")
     st.dataframe(result)
 
+    # 可解释性分析（SHAP）
+    st.subheader("📈 可解释性分析（SHAP）")
+    cols = st.columns(3)
+    for i, (model, name, le) in enumerate(zip([model_lvl1, model_lvl2, model_lvl3], ["Level1", "Level2", "Level3"], [le1, le2, le3])):
+        with cols[i]:
+            st.markdown(f"#### 🔍 {name} 模型 SHAP 解释")
+            explainer = shap.TreeExplainer(model)
+            shap_values = explainer.shap_values(df_input)
+
+            if isinstance(shap_values, list) and len(shap_values) == len(le.classes_):
+                fig1 = plt.figure(figsize=(5, 3))
+                shap.summary_plot(shap_values, df_input, plot_type="bar", show=False)
+                st.pyplot(fig1)
+                plt.clf()
+            else:
+                fig2 = plt.figure(figsize=(5, 3))
+                shap.summary_plot(shap_values, df_input, plot_type="bar", show=False)
+                st.pyplot(fig2)
+                plt.clf()
+
     # ✅ 确认加入训练池
+    st.subheader("🧩 是否将预测样本加入训练池？")
     if st.checkbox("✅ 确认将这些样本加入训练池用于再训练"):
         df_save = df_input.copy()
         df_save["Level1"] = pred1_label
@@ -91,26 +112,6 @@ def predict_all_levels(df):
         df_save["Level3"] = pred3_label
         df_save.to_csv("training_pool.csv", mode="a", header=not os.path.exists("training_pool.csv"), index=False, encoding="utf-8-sig")
         st.success("✅ 样本已加入训练池！")
-
-    # 可解释性分析（SHAP）
-    st.subheader("📈 可解释性分析（SHAP）")
-    for model, name, le in zip([model_lvl1, model_lvl2, model_lvl3], ["Level1", "Level2", "Level3"], [le1, le2, le3]):
-        st.markdown(f"#### 🔍 {name} 模型 SHAP 解释")
-        explainer = shap.TreeExplainer(model)
-        shap_values = explainer.shap_values(df_input)
-
-        if isinstance(shap_values, list) and len(shap_values) == len(le.classes_):
-            for i, class_label in enumerate(le.classes_):
-                st.markdown(f"**类别：{class_label}**")
-                fig1 = plt.figure(figsize=(8, 4))
-                shap.summary_plot(shap_values[i], df_input, plot_type="bar", show=False)
-                st.pyplot(fig1)
-                plt.clf()
-        else:
-            fig2 = plt.figure(figsize=(8, 4))
-            shap.summary_plot(shap_values, df_input, plot_type="bar", show=False)
-            st.pyplot(fig2)
-            plt.clf()
 
 # 🔄 主逻辑
 if uploaded_file is not None:
