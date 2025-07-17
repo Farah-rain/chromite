@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import os
 import joblib
 import requests
+import base64
 from sklearn.preprocessing import LabelEncoder
 from io import BytesIO
 
@@ -111,37 +112,41 @@ def predict_all_levels(df):
         st.success("✅ 样本已加入训练池！")
 
         # 📤 自动上传至 GitHub
-        GITHUB_TOKEN = st.secrets["github"]["token"]
-        repo_owner = "Farah-rain"
-        repo_name = "chromite"
-        file_path = "training_pool.csv"
-        commit_msg = "update training pool"
+        try:
+            GITHUB_TOKEN = st.secrets["github"]["token"]
+            repo_owner = "Farah-rain"
+            repo_name = "chromite"
+            file_path = "training_pool.csv"
+            commit_msg = "update training pool"
 
-        with open(file_path, "rb") as f:
-            content = f.read()
-            content_b64 = content.encode("base64") if isinstance(content, str) else content
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}"
-        headers = {
-            "Authorization": f"token {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github+json"
-        }
-        r = requests.get(url, headers=headers)
-        if r.status_code == 200:
-            sha = r.json()["sha"]
-        else:
-            sha = None
-        data = {
-            "message": commit_msg,
-            "content": content.decode("utf-8").encode("base64"),
-            "branch": "main"
-        }
-        if sha:
-            data["sha"] = sha
-        put_resp = requests.put(url, headers=headers, json=data)
-        if put_resp.status_code in [200, 201]:
-            st.success("✅ 已同步上传至 GitHub 仓库！")
-        else:
-            st.warning("⚠️ GitHub 上传失败，请检查 token 或网络连接。")
+            with open(file_path, "rb") as f:
+                content = f.read()
+                content_b64 = base64.b64encode(content).decode("utf-8")
+
+            url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}"
+            headers = {
+                "Authorization": f"token {GITHUB_TOKEN}",
+                "Accept": "application/vnd.github+json"
+            }
+
+            r = requests.get(url, headers=headers)
+            sha = r.json()["sha"] if r.status_code == 200 else None
+
+            data = {
+                "message": commit_msg,
+                "content": content_b64,
+                "branch": "main"
+            }
+            if sha:
+                data["sha"] = sha
+
+            put_resp = requests.put(url, headers=headers, json=data)
+            if put_resp.status_code in [200, 201]:
+                st.success("✅ 已同步上传至 GitHub 仓库！")
+            else:
+                st.warning(f"⚠️ GitHub 上传失败：{put_resp.json()}")
+        except Exception as e:
+            st.error(f"❌ GitHub 上传失败：{e}")
 
     # 📥 提供下载预测结果 Excel（按钮在最后）
     output = BytesIO()
