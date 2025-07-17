@@ -34,14 +34,20 @@ def predict_and_plot(df, level_name):
 
     # 预测概率和类别
     y_pred_prob = model.predict(df)
-    y_pred_label = y_pred_prob.argmax(axis=1)
-    y_pred_classname = [class_labels[i] for i in y_pred_label]
+    if len(class_labels) > 1:
+        y_pred_label = y_pred_prob.argmax(axis=1)
+        y_pred_classname = [class_labels[i] for i in y_pred_label]
+    else:
+        y_pred_classname = [class_labels[0] if prob > 0.5 else f"非{class_labels[0]}" for prob in y_pred_prob]
 
     st.subheader("🌟 分类预测结果")
     result_df = df.copy()
     result_df.insert(0, "预测类别", y_pred_classname)
-    for i, label in enumerate(class_labels):
-        result_df[label + " 概率"] = y_pred_prob[:, i]
+    if len(class_labels) > 1:
+        for i, label in enumerate(class_labels):
+            result_df[label + " 概率"] = y_pred_prob[:, i]
+    else:
+        result_df[class_labels[0] + " 概率"] = y_pred_prob
     st.dataframe(result_df)
 
     # ✅ 添加确认按钮后才允许写入训练池
@@ -56,13 +62,19 @@ def predict_and_plot(df, level_name):
     explainer = shap.TreeExplainer(model)
     shap_values = explainer.shap_values(df)
 
-    for i, class_shap in enumerate(shap_values):
-        if i >= len(class_labels):
-            continue
-        class_name = class_labels[i]
-        st.markdown(f"#### 类别：{class_name}")
-        fig, ax = plt.subplots(figsize=(8, 4))
-        shap.summary_plot(class_shap, df, plot_type="bar", show=False)
+    if isinstance(shap_values, list) and len(shap_values) == len(class_labels):
+        fig, ax = plt.subplots(figsize=(10, 6))
+        shap.summary_plot(shap_values, df, plot_type="bar", class_names=class_labels, show=False)
+        st.pyplot(fig)
+        plt.clf()
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        shap.summary_plot(shap_values, df, class_names=class_labels, show=False)
+        st.pyplot(fig)
+        plt.clf()
+    else:
+        fig, ax = plt.subplots(figsize=(10, 6))
+        shap.summary_plot(shap_values, df, plot_type="bar", show=False)
         st.pyplot(fig)
         plt.clf()
 
@@ -76,3 +88,4 @@ if uploaded_file is not None:
         predict_and_plot(df, level_name="一级分类")
     except Exception as e:
         st.error(f"发生错误：{str(e)}")
+
