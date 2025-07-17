@@ -1,0 +1,23 @@
+# Level1
+extraterrestrial
+terrestrial
+
+# Level2
+CC
+HED
+Iron
+Lunar
+Mars
+Mesosiderite
+OC
+PA
+Pallasite
+
+# Level3
+CM
+CO
+CR-clan
+CV
+H
+L
+LL
