@@ -13,10 +13,10 @@ st.title("✨ 铬铁矿 地外来源判别系统")
 # ⛏️ 模型和特征加载
 @st.cache_resource
 def load_model_and_metadata():
-    model_lvl1 = joblib.load("models/model_level1.pkl")
-    model_lvl2 = joblib.load("models/model_level2.pkl")
-    model_lvl3 = joblib.load("models/model_level3.pkl")
-    
+    model_lvl1 = joblib.load("model_level1.pkl")
+    model_lvl2 = joblib.load("model_level2.pkl")
+    model_lvl3 = joblib.load("model_level3.pkl")
+
     features = model_lvl1.feature_name_  # 所有模型共用相同特征列
 
     le1 = LabelEncoder().fit(model_lvl1.classes_)
