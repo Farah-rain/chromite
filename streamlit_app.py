@@ -1,95 +1,124 @@
 import streamlit as st
 import pandas as pd
-import lightgbm as lgb
+import numpy as np
 import shap
 import matplotlib.pyplot as plt
 import os
+import joblib
 from sklearn.preprocessing import LabelEncoder
 
 st.set_page_config(page_title="铬铁矿地外来源判别系统", layout="wide")
 st.title("✨ 铬铁矿 地外来源判别系统")
 
-# 文件上传
-uploaded_file = st.file_uploader("📤 请上传需要预测的 CSV 或 Excel 文件（包含所有特征列）", type=["csv", "xlsx"])
-
-# 加载模型和特征列
+# ⛏️ 模型和特征加载
 @st.cache_resource
-def load_model_and_features():
-    model = lgb.Booster(model_file="best_model.txt")
-    with open("feature_list.txt", "r", encoding="utf-8") as f:
-        feature_list = f.read().splitlines()
-    with open("class_labels.txt", "r", encoding="utf-8") as f:
-        class_labels = f.read().splitlines()
-    return model, feature_list, class_labels
+def load_model_and_metadata():
+    model_lvl1 = joblib.load("models/model_level1.pkl")
+    model_lvl2 = joblib.load("models/model_level2.pkl")
+    model_lvl3 = joblib.load("models/model_level3.pkl")
+    
+    features = model_lvl1.feature_name_  # 所有模型共用相同特征列
 
-model, feature_list, class_labels = load_model_and_features()
+    le1 = LabelEncoder().fit(model_lvl1.classes_)
+    le2 = LabelEncoder().fit(model_lvl2.classes_)
+    le3 = LabelEncoder().fit(model_lvl3.classes_)
 
-# 预测函数
-def predict_and_plot(df, level_name):
-    df = df.copy()
+    return model_lvl1, model_lvl2, model_lvl3, features, le1, le2, le3
+
+model_lvl1, model_lvl2, model_lvl3, feature_list, le1, le2, le3 = load_model_and_metadata()
+
+# 📤 上传数据
+uploaded_file = st.file_uploader("请上传待预测的 Excel 或 CSV 文件（包含所有特征列）", type=["xlsx", "csv"])
+
+# 🔍 预测函数
+def predict_all_levels(df):
+    df_input = df.copy()
     for col in feature_list:
-        if col not in df.columns:
-            df[col] = 0
-    df = df[feature_list]
+        if col not in df_input.columns:
+            df_input[col] = np.nan
+    df_input = df_input[feature_list].astype(float)
 
-    # 预测概率和类别
-    y_pred_prob = model.predict(df)
-    if len(class_labels) > 1:
-        y_pred_label = y_pred_prob.argmax(axis=1)
-        y_pred_classname = [class_labels[i] for i in y_pred_label]
-    else:
-        y_pred_classname = [class_labels[0] if prob > 0.5 else f"非{class_labels[0]}" for prob in y_pred_prob]
+    # 一级分类
+    prob1 = model_lvl1.predict_proba(df_input)
+    pred1_idx = np.argmax(prob1, axis=1)
+    pred1_label = le1.inverse_transform(pred1_idx)
 
-    st.subheader("🌟 分类预测结果")
-    result_df = df.copy()
-    result_df.insert(0, "预测类别", y_pred_classname)
-    if len(class_labels) > 1:
-        for i, label in enumerate(class_labels):
-            result_df[label + " 概率"] = y_pred_prob[:, i]
-    else:
-        result_df[class_labels[0] + " 概率"] = y_pred_prob
-    st.dataframe(result_df)
+    # 二级分类（仅限一级为 extraterrestrial）
+    mask_lvl2 = (pred1_label == "extraterrestrial")
+    df_lvl2 = df_input[mask_lvl2]
+    prob2 = np.full((len(df_input), len(le2.classes_)), np.nan)
+    pred2_label = np.full(len(df_input), "", dtype=object)
+    if len(df_lvl2) > 0:
+        prob2_masked = model_lvl2.predict_proba(df_lvl2)
+        idx2 = np.argmax(prob2_masked, axis=1)
+        pred2_masked = le2.inverse_transform(idx2)
+        prob2[mask_lvl2] = prob2_masked
+        pred2_label[mask_lvl2] = pred2_masked
 
-    # ✅ 添加确认按钮后才允许写入训练池
-    if st.checkbox("✅ 确认将这些样本加入训练池，用于未来再训练？"):
-        df_insert = df.copy()
-        df_insert[level_name] = y_pred_classname
-        df_insert.to_csv("training_pool.csv", mode="a", index=False, header=not os.path.exists("training_pool.csv"), encoding="utf-8-sig")
-        st.success("已成功加入训练池！")
+    # 三级分类（仅限二级为 OC 或 CC）
+    mask_lvl3 = (pred2_label == "OC") | (pred2_label == "CC")
+    df_lvl3 = df_input[mask_lvl3]
+    prob3 = np.full((len(df_input), len(le3.classes_)), np.nan)
+    pred3_label = np.full(len(df_input), "", dtype=object)
+    if len(df_lvl3) > 0:
+        prob3_masked = model_lvl3.predict_proba(df_lvl3)
+        idx3 = np.argmax(prob3_masked, axis=1)
+        pred3_masked = le3.inverse_transform(idx3)
+        prob3[mask_lvl3] = prob3_masked
+        pred3_label[mask_lvl3] = pred3_masked
 
-    # SHAP 可解释性分析
-    st.subheader("📊 可解释性分析（SHAP）")
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer.shap_values(df)
+    # 📊 结果展示
+    result = df.copy()
+    result.insert(0, "Level1_预测", pred1_label)
+    result.insert(1, "Level2_预测", pred2_label)
+    result.insert(2, "Level3_预测", pred3_label)
 
-    if isinstance(shap_values, list) and len(shap_values) == len(class_labels):
-        for i, label in enumerate(class_labels):
-            fig, ax = plt.subplots(figsize=(10, 6))
-            st.write(f"🔹 SHAP - {level_name} - 类别: {label}")
-            shap.summary_plot(shap_values[i], df, plot_type="bar", show=False)
-            st.pyplot(fig)
+    for i, c in enumerate(le1.classes_):
+        result[f"P_Level1_{c}"] = prob1[:, i]
+    for i, c in enumerate(le2.classes_):
+        result[f"P_Level2_{c}"] = prob2[:, i]
+    for i, c in enumerate(le3.classes_):
+        result[f"P_Level3_{c}"] = prob3[:, i]
+
+    st.subheader("🧾 预测结果：")
+    st.dataframe(result)
+
+    # ✅ 确认加入训练池
+    if st.checkbox("✅ 确认将这些样本加入训练池用于再训练"):
+        df_save = df_input.copy()
+        df_save["Level1"] = pred1_label
+        df_save["Level2"] = pred2_label
+        df_save["Level3"] = pred3_label
+        df_save.to_csv("training_pool.csv", mode="a", header=not os.path.exists("training_pool.csv"), index=False, encoding="utf-8-sig")
+        st.success("✅ 样本已加入训练池！")
+
+    # 可解释性分析（SHAP）
+    st.subheader("📈 可解释性分析（SHAP）")
+    for model, name, le in zip([model_lvl1, model_lvl2, model_lvl3], ["Level1", "Level2", "Level3"], [le1, le2, le3]):
+        st.markdown(f"#### 🔍 {name} 模型 SHAP 解释")
+        explainer = shap.TreeExplainer(model)
+        shap_values = explainer.shap_values(df_input)
+
+        if isinstance(shap_values, list) and len(shap_values) == len(le.classes_):
+            for i, class_label in enumerate(le.classes_):
+                st.markdown(f"**类别：{class_label}**")
+                fig1 = plt.figure(figsize=(8, 4))
+                shap.summary_plot(shap_values[i], df_input, plot_type="bar", show=False)
+                st.pyplot(fig1)
+                plt.clf()
+        else:
+            fig2 = plt.figure(figsize=(8, 4))
+            shap.summary_plot(shap_values, df_input, plot_type="bar", show=False)
+            st.pyplot(fig2)
             plt.clf()
 
-        for i, label in enumerate(class_labels):
-            fig, ax = plt.subplots(figsize=(10, 6))
-            st.write(f"🔹 SHAP - {level_name} - 类别: {label}")
-            shap.summary_plot(shap_values[i], df, show=False)
-            st.pyplot(fig)
-            plt.clf()
-    else:
-        fig, ax = plt.subplots(figsize=(10, 6))
-        shap.summary_plot(shap_values, df, plot_type="bar", show=False)
-        st.pyplot(fig)
-        plt.clf()
-
-# 主逻辑
+# 🔄 主逻辑
 if uploaded_file is not None:
     try:
         if uploaded_file.name.endswith(".csv"):
-            df = pd.read_csv(uploaded_file)
+            df_uploaded = pd.read_csv(uploaded_file)
         else:
-            df = pd.read_excel(uploaded_file)
-        predict_and_plot(df, level_name="一级分类")
+            df_uploaded = pd.read_excel(uploaded_file)
+        predict_all_levels(df_uploaded)
     except Exception as e:
-        st.error(f"发生错误：{str(e)}")
-
+        st.error(f"❌ 错误：{str(e)}")
