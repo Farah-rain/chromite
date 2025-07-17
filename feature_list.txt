@@ -1,0 +1,13 @@
+Fe2O3
+TiO2
+MgO
+V2O3
+MnO
+Cr_CrplusAl
+Al2O3
+FeCrAlFe
+Cr2O3
+FeMgFe
+Mg_MgplusFe
+FeO
+FeOT
