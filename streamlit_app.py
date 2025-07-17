@@ -5,7 +5,9 @@ import shap
 import matplotlib.pyplot as plt
 import os
 import joblib
+import requests
 from sklearn.preprocessing import LabelEncoder
+from io import BytesIO
 
 st.set_page_config(page_title="铬铁矿地外来源判别系统", layout="wide")
 st.title("✨ 铬铁矿 地外来源判别系统")
@@ -91,19 +93,12 @@ def predict_all_levels(df):
             st.markdown(f"#### 🔍 {name} 模型 SHAP 解释")
             explainer = shap.TreeExplainer(model)
             shap_values = explainer.shap_values(df_input)
-
             class_names = le.inverse_transform(np.arange(len(le.classes_)))
 
-            if isinstance(shap_values, list) and len(shap_values) == len(class_names):
-                fig1 = plt.figure(figsize=(4, 3))
-                shap.summary_plot(shap_values, df_input, plot_type="bar", class_names=class_names, show=False)
-                st.pyplot(fig1)
-                plt.clf()
-            else:
-                fig2 = plt.figure(figsize=(4, 3))
-                shap.summary_plot(shap_values, df_input, plot_type="bar", class_names=class_names, show=False)
-                st.pyplot(fig2)
-                plt.clf()
+            fig = plt.figure(figsize=(4, 3))
+            shap.summary_plot(shap_values, df_input, plot_type="bar", class_names=class_names, show=False)
+            st.pyplot(fig)
+            plt.clf()
 
     # ✅ 确认加入训练池
     st.subheader("🧩 是否将预测样本加入训练池？")
@@ -115,8 +110,40 @@ def predict_all_levels(df):
         df_save.to_csv("training_pool.csv", mode="a", header=not os.path.exists("training_pool.csv"), index=False, encoding="utf-8-sig")
         st.success("✅ 样本已加入训练池！")
 
+        # 📤 自动上传至 GitHub
+        GITHUB_TOKEN = st.secrets["github"]["token"]
+        repo_owner = "Farah-rain"
+        repo_name = "chromite"
+        file_path = "training_pool.csv"
+        commit_msg = "update training pool"
+
+        with open(file_path, "rb") as f:
+            content = f.read()
+            content_b64 = content.encode("base64") if isinstance(content, str) else content
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}"
+        headers = {
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github+json"
+        }
+        r = requests.get(url, headers=headers)
+        if r.status_code == 200:
+            sha = r.json()["sha"]
+        else:
+            sha = None
+        data = {
+            "message": commit_msg,
+            "content": content.decode("utf-8").encode("base64"),
+            "branch": "main"
+        }
+        if sha:
+            data["sha"] = sha
+        put_resp = requests.put(url, headers=headers, json=data)
+        if put_resp.status_code in [200, 201]:
+            st.success("✅ 已同步上传至 GitHub 仓库！")
+        else:
+            st.warning("⚠️ GitHub 上传失败，请检查 token 或网络连接。")
+
     # 📥 提供下载预测结果 Excel（按钮在最后）
-    from io import BytesIO
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         result.to_excel(writer, index=False, sheet_name='Prediction')
