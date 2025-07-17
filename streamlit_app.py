@@ -14,7 +14,7 @@ st.set_page_config(page_title="铬铁矿 地外来源判别系统", layout="wide
 st.title("✨ 铬铁矿 地外来源判别系统")
 
 # 上传文件
-uploaded_file = st.file_uploader("📤 请上传需要预测的 CSV 文件（包含所有特征列）", type=["csv"])
+uploaded_file = st.file_uploader("📤 请上传需要预测的 CSV 文件（包含所有特征列）", type=["xlsx", "xls"])
 
 if uploaded_file is not None:
     input_df = pd.read_csv(uploaded_file)
