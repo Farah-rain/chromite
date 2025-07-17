@@ -83,19 +83,7 @@ def predict_all_levels(df):
     st.subheader("🧾 预测结果：")
     st.dataframe(result)
 
-    # 📥 提供下载预测结果 Excel
-    from io import BytesIO
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        result.to_excel(writer, index=False, sheet_name='Prediction')
-    st.download_button(
-        label="📥 下载预测结果 Excel",
-        data=output.getvalue(),
-        file_name="prediction_results.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
-    # 可解释性分析（SHAP）
+    # 📈 可解释性分析（SHAP）
     st.subheader("📈 可解释性分析（SHAP）")
     cols = st.columns(3)
     for i, (model, name, le) in enumerate(zip([model_lvl1, model_lvl2, model_lvl3], ["Level1", "Level2", "Level3"], [le1, le2, le3])):
@@ -126,6 +114,18 @@ def predict_all_levels(df):
         df_save["Level3"] = pred3_label
         df_save.to_csv("training_pool.csv", mode="a", header=not os.path.exists("training_pool.csv"), index=False, encoding="utf-8-sig")
         st.success("✅ 样本已加入训练池！")
+
+    # 📥 提供下载预测结果 Excel（按钮在最后）
+    from io import BytesIO
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        result.to_excel(writer, index=False, sheet_name='Prediction')
+    st.download_button(
+        label="📥 下载预测结果 Excel",
+        data=output.getvalue(),
+        file_name="prediction_results.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 # 🔄 主逻辑
 if uploaded_file is not None:
