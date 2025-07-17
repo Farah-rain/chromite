@@ -63,20 +63,13 @@ def predict_and_plot(df, level_name):
     shap_values = explainer.shap_values(df)
 
     if isinstance(shap_values, list) and len(shap_values) == len(class_labels):
-        # 自动获取模型中类别顺序（通过列顺序）
-        try:
-            pred_df = pd.DataFrame(y_pred_prob, columns=class_labels)
-            class_order = pred_df.columns.tolist()
-        except:
-            class_order = class_labels
-
         fig, ax = plt.subplots(figsize=(10, 6))
-        shap.summary_plot(shap_values, df, plot_type="bar", class_names=class_order, show=False)
+        shap.summary_plot(shap_values, df, plot_type="bar", class_names=class_labels, show=False)
         st.pyplot(fig)
         plt.clf()
 
         fig, ax = plt.subplots(figsize=(10, 6))
-        shap.summary_plot(shap_values, df, class_names=class_order, show=False)
+        shap.summary_plot(shap_values, df, class_names=class_labels, show=False)
         st.pyplot(fig)
         plt.clf()
     else:
