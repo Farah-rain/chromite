@@ -92,14 +92,16 @@ def predict_all_levels(df):
             explainer = shap.TreeExplainer(model)
             shap_values = explainer.shap_values(df_input)
 
-            if isinstance(shap_values, list) and len(shap_values) == len(le.classes_):
-                fig1 = plt.figure(figsize=(5, 3))
-                shap.summary_plot(shap_values, df_input, plot_type="bar", show=False)
+            class_names = le.inverse_transform(np.arange(len(le.classes_)))
+
+            if isinstance(shap_values, list) and len(shap_values) == len(class_names):
+                fig1 = plt.figure(figsize=(4, 3))
+                shap.summary_plot(shap_values, df_input, plot_type="bar", class_names=class_names, show=False)
                 st.pyplot(fig1)
                 plt.clf()
             else:
-                fig2 = plt.figure(figsize=(5, 3))
-                shap.summary_plot(shap_values, df_input, plot_type="bar", show=False)
+                fig2 = plt.figure(figsize=(4, 3))
+                shap.summary_plot(shap_values, df_input, plot_type="bar", class_names=class_names, show=False)
                 st.pyplot(fig2)
                 plt.clf()
 
