@@ -119,7 +119,8 @@ if uploaded_file is not None:
         prob2[mask_lvl2] = prob2_masked
         pred2_label[mask_lvl2] = pred2_masked
 
-    mask_lvl3 = (pred2_label == "OC") | (pred2_label == "CC")
+mask_lvl3 = (pred2_label == "UOC") | (pred2_label == "CC") | (pred2_label == "EOC")
+
     df_lvl3 = df_input[mask_lvl3]
     prob3 = np.full((len(df_input), len(le3.classes_)), np.nan)
     pred3_label = np.full(len(df_input), "", dtype=object)
