@@ -149,20 +149,30 @@ def predict_all_levels(df):
         pred3_label[mask_lvl3] = pred3_masked
 
     # 📊 结果展示
-    result = df.copy()
-    result.insert(0, "Level1_预测", pred1_label)
-    result.insert(1, "Level2_预测", pred2_label)
-    result.insert(2, "Level3_预测", pred3_label)
+    # 📊 结果展示（带序号 + 特征 + 概率）
+df_featured = df.copy().reset_index(drop=True)
+df_featured.insert(0, "序号", df_featured.index + 1)
 
-    for i, c in enumerate(le1.classes_):
-        result[f"P_Level1_{c}"] = prob1[:, i]
-    for i, c in enumerate(le2.classes_):
-        result[f"P_Level2_{c}"] = prob2[:, i]
-    for i, c in enumerate(le3.classes_):
-        result[f"P_Level3_{c}"] = prob3[:, i]
+# 插入预测结果
+df_featured.insert(1, "Level1_预测", pred1_label)
+df_featured.insert(2, "Level2_预测", pred2_label)
+df_featured.insert(3, "Level3_预测", pred3_label)
 
-    st.subheader("🧾 预测结果：")
-    st.dataframe(result)
+# 插入概率列
+for i, c in enumerate(le1.classes_):
+    df_featured[f"P_Level1_{c}"] = prob1[:, i]
+for i, c in enumerate(le2.classes_):
+    df_featured[f"P_Level2_{c}"] = prob2[:, i]
+for i, c in enumerate(le3.classes_):
+    df_featured[f"P_Level3_{c}"] = prob3[:, i]
+
+# 展示
+st.subheader("🧾 预测结果：")
+st.dataframe(df_featured)
+
+# 下载用结果也同步使用这个表
+result = df_featured.copy()
+
 
     # 📈 可解释性分析（SHAP）
     st.subheader("📈 可解释性分析（SHAP）")
