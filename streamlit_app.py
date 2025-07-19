@@ -60,7 +60,7 @@ def preprocess_uploaded_data(df):
     oxygen_expected = df['Cation_Total'] * 1.5
     oxygen_deficit = oxygen_expected - df['Oxygen_Total']
 
-    # 正确拆分：用户上传的 FeO 是总铁，拆为 Fe2+ 和 Fe3+
+    # FeO 是总铁含量，按比例分配为 Fe2+ 和 Fe3+
     Fe_total_wt = df['FeO']
     Fe_total_mol = Fe_total_wt / mol_wt['FeO']
     Fe3_mol = (oxygen_deficit * 2).clip(lower=0)
