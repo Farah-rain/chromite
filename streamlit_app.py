@@ -60,22 +60,22 @@ def preprocess_uploaded_data(df):
     oxygen_expected = df['Cation_Total'] * 1.5
     oxygen_deficit = oxygen_expected - df['Oxygen_Total']
 
-    # 修正：用户上传的是总Fe，以FeO形式表达
+    # 正确拆分：用户上传的 FeO 是总铁，拆为 Fe2+ 和 Fe3+
     Fe_total_wt = df['FeO']
     Fe_total_mol = Fe_total_wt / mol_wt['FeO']
-    Fe3_mol_theoretical = (oxygen_deficit * 2).clip(lower=0)
-    Fe3_mol = np.minimum(Fe3_mol_theoretical, Fe_total_mol)
+    Fe3_mol = (oxygen_deficit * 2).clip(lower=0)
+    Fe3_mol = np.minimum(Fe3_mol, Fe_total_mol)
     Fe2_mol = Fe_total_mol - Fe3_mol
 
-    df['FeO_recalc'] = Fe2_mol * mol_wt['FeO']
-    df['Fe2O3_calc'] = Fe3_mol * mol_wt['Fe2O3'] / 2
-    df['FeO_total'] = Fe_total_wt
+    df['FeOre'] = Fe2_mol * mol_wt['FeO']
+    df['Fe2O3re'] = Fe3_mol * mol_wt['Fe2O3'] / 2
+    df['FeO_total'] = df['FeOre'] + df['Fe2O3re'] * 0.8998
 
     Cr_mol = df['Cr2O3'] / mol_wt['Cr2O3'] * 2
     Al_mol = df['Al2O3'] / mol_wt['Al2O3'] * 2
     Mg_mol = df['MgO'] / mol_wt['MgO']
-    Fe2_mol = df['FeO_recalc'] / mol_wt['FeO']
-    Fe3_mol = df['Fe2O3_calc'] / mol_wt['Fe2O3'] * 2
+    Fe2_mol = df['FeOre'] / mol_wt['FeO']
+    Fe3_mol = df['Fe2O3re'] / mol_wt['Fe2O3'] * 2
 
     df['Cr_CrplusAl'] = Cr_mol / (Cr_mol + Al_mol)
     df['Mg_MgplusFe'] = Mg_mol / (Mg_mol + Fe2_mol)
