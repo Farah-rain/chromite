@@ -60,14 +60,16 @@ def preprocess_uploaded_data(df):
     oxygen_expected = df['Cation_Total'] * 1.5
     oxygen_deficit = oxygen_expected - df['Oxygen_Total']
 
-    # 用户上传的是总Fe，这里统一按总Fe计算拆分为 Fe2+ 和 Fe3+
-    Fe_total_mol = df['FeO'] / mol_wt['FeO']
-    Fe3_mol = (oxygen_deficit * 2).clip(lower=0, upper=Fe_total_mol)
+    # 修正：用户上传的是总Fe，以FeO形式表达
+    Fe_total_wt = df['FeO']
+    Fe_total_mol = Fe_total_wt / mol_wt['FeO']
+    Fe3_mol_theoretical = (oxygen_deficit * 2).clip(lower=0)
+    Fe3_mol = np.minimum(Fe3_mol_theoretical, Fe_total_mol)
     Fe2_mol = Fe_total_mol - Fe3_mol
 
     df['FeO_recalc'] = Fe2_mol * mol_wt['FeO']
     df['Fe2O3_calc'] = Fe3_mol * mol_wt['Fe2O3'] / 2
-    df['FeO_total'] = df['FeO']
+    df['FeO_total'] = Fe_total_wt
 
     Cr_mol = df['Cr2O3'] / mol_wt['Cr2O3'] * 2
     Al_mol = df['Al2O3'] / mol_wt['Al2O3'] * 2
@@ -82,6 +84,7 @@ def preprocess_uploaded_data(df):
     return df
 
 # 页面主入口
+
 def main():
     uploaded_file = st.file_uploader("请上传待预测的 Excel 或 CSV 文件（包含所有特征列）", type=["xlsx", "csv"])
     if uploaded_file is not None:
@@ -134,7 +137,6 @@ def predict_all_levels(df):
     df_featured.insert(1, "Level1_预测", pred1_label)
     df_featured.insert(2, "Level2_预测", pred2_label)
     df_featured.insert(3, "Level3_预测", pred3_label)
-
     for i, c in enumerate(le1.classes_):
         df_featured[f"P_Level1_{c}"] = prob1[:, i]
     for i, c in enumerate(le2.classes_):
@@ -145,7 +147,16 @@ def predict_all_levels(df):
     st.subheader("🧾 预测结果：")
     st.dataframe(df_featured)
 
-    # SHAP
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df_featured.to_excel(writer, index=False, sheet_name='Prediction')
+    st.download_button(
+        label="📥 下载预测结果 Excel",
+        data=output.getvalue(),
+        file_name="prediction_results.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
     st.subheader("📈 可解释性分析（SHAP）")
     cols = st.columns(3)
     for i, (model, name, le) in enumerate(zip([model_lvl1, model_lvl2, model_lvl3], ["Level1", "Level2", "Level3"], [le1, le2, le3])):
@@ -159,7 +170,6 @@ def predict_all_levels(df):
             st.pyplot(fig)
             plt.clf()
 
-    # 加入训练池
     st.subheader("🧩 是否将预测样本加入训练池？")
     if st.checkbox("✅ 确认将这些样本加入训练池用于再训练"):
         df_save = df_input.copy()
@@ -175,19 +185,28 @@ def predict_all_levels(df):
             repo_name = "chromite"
             file_path = "training_pool.csv"
             commit_msg = "update training pool"
+
             with open(file_path, "rb") as f:
                 content = f.read()
                 content_b64 = base64.b64encode(content).decode("utf-8")
+
             url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}"
             headers = {
                 "Authorization": f"token {GITHUB_TOKEN}",
                 "Accept": "application/vnd.github+json"
             }
+
             r = requests.get(url, headers=headers)
             sha = r.json()["sha"] if r.status_code == 200 else None
-            data = {"message": commit_msg, "content": content_b64, "branch": "main"}
+
+            data = {
+                "message": commit_msg,
+                "content": content_b64,
+                "branch": "main"
+            }
             if sha:
                 data["sha"] = sha
+
             put_resp = requests.put(url, headers=headers, json=data)
             if put_resp.status_code in [200, 201]:
                 st.success("✅ 已同步上传至 GitHub 仓库！")
@@ -196,16 +215,6 @@ def predict_all_levels(df):
         except Exception as e:
             st.error(f"❌ GitHub 上传失败：{e}")
 
-    # 下载预测结果
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df_featured.to_excel(writer, index=False, sheet_name='Prediction')
-    st.download_button(
-        label="📥 下载预测结果 Excel",
-        data=output.getvalue(),
-        file_name=f"prediction_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
-if __name__ == "__main__":
+# 启动主程序
+if __name__ == '__main__':
     main()
