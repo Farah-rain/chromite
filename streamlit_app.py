@@ -36,39 +36,40 @@ def preprocess_uploaded_data(df):
         "FeO": 71.844, "Fe2O3": 159.688,
     }
     oxide_info = {
-        'MgO': {'mol_wt': 40.304, 'cation_num': 1, 'oxygen_num': 1},
-        'Al2O3': {'mol_wt': 101.961, 'cation_num': 2, 'oxygen_num': 3},
-        'TiO2': {'mol_wt': 79.866, 'cation_num': 1, 'oxygen_num': 2},
-        'V2O3': {'mol_wt': 149.881, 'cation_num': 2, 'oxygen_num': 3},
-        'Cr2O3': {'mol_wt': 151.99, 'cation_num': 2, 'oxygen_num': 3},
-        'MnO': {'mol_wt': 70.937, 'cation_num': 1, 'oxygen_num': 1},
-        'FeO': {'mol_wt': 71.844, 'cation_num': 1, 'oxygen_num': 1},
-        'ZnO': {'mol_wt': 81.38, 'cation_num': 1, 'oxygen_num': 1},
-        'NiO': {'mol_wt': 74.692, 'cation_num': 1, 'oxygen_num': 1},
-        'SiO2': {'mol_wt': 60.084, 'cation_num': 1, 'oxygen_num': 2},
+        'SiO2':  {'mol_wt': 60.084,  'cation_num': 1, 'valence': 4, 'oxygen_num': 2},
+        'TiO2':  {'mol_wt': 79.866,  'cation_num': 1, 'valence': 4, 'oxygen_num': 2},
+        'Al2O3': {'mol_wt': 101.961, 'cation_num': 2, 'valence': 3, 'oxygen_num': 3},
+        'FeO':   {'mol_wt': 71.844,  'cation_num': 1, 'valence': 2, 'oxygen_num': 1},
+        'MnO':   {'mol_wt': 70.937,  'cation_num': 1, 'valence': 2, 'oxygen_num': 1},
+        'MgO':   {'mol_wt': 40.304,  'cation_num': 1, 'valence': 2, 'oxygen_num': 1},
+        'CaO':   {'mol_wt': 56.077,  'cation_num': 1, 'valence': 2, 'oxygen_num': 1},
+        'Na2O':  {'mol_wt': 61.979,  'cation_num': 2, 'valence': 1, 'oxygen_num': 1},
+        'K2O':   {'mol_wt': 94.196,  'cation_num': 2, 'valence': 1, 'oxygen_num': 1},
+        'Cr2O3': {'mol_wt': 151.990, 'cation_num': 2, 'valence': 3, 'oxygen_num': 3},
+        'NiO':   {'mol_wt': 74.692,  'cation_num': 1, 'valence': 2, 'oxygen_num': 1}
     }
-    def compute_totals(row):
-        total_cation, total_oxygen = 0, 0
+    FeOre_list = []
+    Fe2O3re_list = []
+    for i, row in df.iterrows():
+        total_pos, total_neg = 0.0, 0.0
         for oxide, info in oxide_info.items():
-            if pd.notna(row.get(oxide)):
+            if oxide in row and not pd.isna(row[oxide]):
                 mol = row[oxide] / info['mol_wt']
-                total_cation += mol * info['cation_num']
-                total_oxygen += mol * info['oxygen_num']
-        return pd.Series([total_cation, total_oxygen])
-
-    df[['Cation_Total', 'Oxygen_Total']] = df.apply(compute_totals, axis=1)
-    oxygen_expected = df['Cation_Total'] * 1.5
-    oxygen_deficit = oxygen_expected - df['Oxygen_Total']
-
-    # FeO 是总铁含量，按比例分配为 Fe2+ 和 Fe3+
-    Fe_total_wt = df['FeO']
-    Fe_total_mol = Fe_total_wt / mol_wt['FeO']
-    Fe3_mol = (oxygen_deficit * 2).clip(lower=0)
-    Fe3_mol = np.minimum(Fe3_mol, Fe_total_mol)
-    Fe2_mol = Fe_total_mol - Fe3_mol
-
-    df['FeOre'] = Fe2_mol * mol_wt['FeO']
-    df['Fe2O3re'] = Fe3_mol * mol_wt['Fe2O3'] / 2
+                total_pos += mol * info['cation_num'] * info['valence']
+                total_neg += mol * info['oxygen_num'] * 2
+        Fe_total_wt = row['FeO']
+        Fe_total_mol = Fe_total_wt / mol_wt['FeO']
+        Fe3_mol = max(0.0, total_neg - total_pos)
+        Fe3_mol = min(Fe3_mol, Fe_total_mol)
+        Fe2_mol = Fe_total_mol - Fe3_mol
+        ferrous_frac = Fe2_mol / Fe_total_mol if Fe_total_mol > 0 else 0.0
+        ferric_frac = Fe3_mol / Fe_total_mol if Fe_total_mol > 0 else 0.0
+        FeOre_val = ferrous_frac * row['FeO']
+        Fe2O3re_val = ferric_frac * row['FeO'] * 1.1113
+        FeOre_list.append(FeOre_val)
+        Fe2O3re_list.append(Fe2O3re_val)
+    df['FeOre'] = FeOre_list
+    df['Fe2O3re'] = Fe2O3re_list
     df['FeO_total'] = df['FeOre'] + df['Fe2O3re'] * 0.8998
 
     Cr_mol = df['Cr2O3'] / mol_wt['Cr2O3'] * 2
@@ -97,6 +98,9 @@ def main():
             predict_all_levels(df_uploaded)
         except Exception as e:
             st.error(f"❌ 错误：{str(e)}")
+
+# 🔮 三层级预测函数 + SHAP 解释 + 结果展示
+
 
 # 🔮 三层级预测函数 + SHAP 解释 + 结果展示
 def predict_all_levels(df):
