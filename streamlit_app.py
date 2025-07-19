@@ -11,36 +11,30 @@ from sklearn.preprocessing import LabelEncoder
 from io import BytesIO
 from datetime import datetime
 
+# 页面配置
 st.set_page_config(page_title="铬铁矿地外来源判别系统", layout="wide")
 st.title("✨ 铬铁矿 地外来源判别系统")
 
-# ⛏️ 模型和特征加载
+# 加载模型和特征
 @st.cache_resource
 def load_model_and_metadata():
     model_lvl1 = joblib.load("model_level1.pkl")
     model_lvl2 = joblib.load("model_level2.pkl")
     model_lvl3 = joblib.load("model_level3.pkl")
-
-    features = model_lvl1.feature_name_  # 所有模型共用相同特征列
-
+    features = model_lvl1.feature_name_
     le1 = LabelEncoder().fit(model_lvl1.classes_)
     le2 = LabelEncoder().fit(model_lvl2.classes_)
     le3 = LabelEncoder().fit(model_lvl3.classes_)
-
     return model_lvl1, model_lvl2, model_lvl3, features, le1, le2, le3
 
 model_lvl1, model_lvl2, model_lvl3, feature_list, le1, le2, le3 = load_model_and_metadata()
 
-# 🔬 上传后预处理模块：氧化态拆分 + 衍生特征
+# 数据预处理函数
 def preprocess_uploaded_data(df):
     mol_wt = {
-        "Cr2O3": 151.99,
-        "Al2O3": 101.961,
-        "MgO": 40.304,
-        "FeO": 71.844,
-        "Fe2O3": 159.688,
+        "Cr2O3": 151.99, "Al2O3": 101.961, "MgO": 40.304,
+        "FeO": 71.844, "Fe2O3": 159.688,
     }
-
     oxide_info = {
         'MgO': {'mol_wt': 40.304, 'cation_num': 1, 'oxygen_num': 1},
         'Al2O3': {'mol_wt': 101.961, 'cation_num': 2, 'oxygen_num': 3},
@@ -53,7 +47,6 @@ def preprocess_uploaded_data(df):
         'NiO': {'mol_wt': 74.692, 'cation_num': 1, 'oxygen_num': 1},
         'SiO2': {'mol_wt': 60.084, 'cation_num': 1, 'oxygen_num': 2},
     }
-
     def compute_totals(row):
         total_cation, total_oxygen = 0, 0
         for oxide, info in oxide_info.items():
@@ -83,10 +76,9 @@ def preprocess_uploaded_data(df):
     df['Mg_MgplusFe'] = Mg_mol / (Mg_mol + Fe2_mol)
     df['FeCrAlFe'] = Fe3_mol / (Fe3_mol + Cr_mol + Al_mol)
     df['FeMgFe'] = Fe2_mol / (Fe2_mol + Mg_mol)
-
     return df
 
-# 🔍 预测函数
+# 预测主函数
 def predict_all_levels(df):
     df_input = df.copy()
     for col in feature_list:
@@ -97,21 +89,25 @@ def predict_all_levels(df):
     prob1 = model_lvl1.predict_proba(df_input)
     pred1_label = le1.inverse_transform(np.argmax(prob1, axis=1))
 
-    mask_lvl2 = (pred1_label == "extraterrestrial")
+    mask_lvl2 = pred1_label == "extraterrestrial"
+    df_lvl2 = df_input[mask_lvl2]
     prob2 = np.full((len(df_input), len(le2.classes_)), np.nan)
     pred2_label = np.full(len(df_input), "", dtype=object)
-    if mask_lvl2.any():
-        prob2_masked = model_lvl2.predict_proba(df_input[mask_lvl2])
-        pred2_label[mask_lvl2] = le2.inverse_transform(np.argmax(prob2_masked, axis=1))
+    if len(df_lvl2) > 0:
+        prob2_masked = model_lvl2.predict_proba(df_lvl2)
+        pred2_masked = le2.inverse_transform(np.argmax(prob2_masked, axis=1))
         prob2[mask_lvl2] = prob2_masked
+        pred2_label[mask_lvl2] = pred2_masked
 
     mask_lvl3 = (pred2_label == "OC") | (pred2_label == "CC")
+    df_lvl3 = df_input[mask_lvl3]
     prob3 = np.full((len(df_input), len(le3.classes_)), np.nan)
     pred3_label = np.full(len(df_input), "", dtype=object)
-    if mask_lvl3.any():
-        prob3_masked = model_lvl3.predict_proba(df_input[mask_lvl3])
-        pred3_label[mask_lvl3] = le3.inverse_transform(np.argmax(prob3_masked, axis=1))
+    if len(df_lvl3) > 0:
+        prob3_masked = model_lvl3.predict_proba(df_lvl3)
+        pred3_masked = le3.inverse_transform(np.argmax(prob3_masked, axis=1))
         prob3[mask_lvl3] = prob3_masked
+        pred3_label[mask_lvl3] = pred3_masked
 
     df_featured = df.copy().reset_index(drop=True)
     df_featured.insert(0, "序号", df_featured.index + 1)
@@ -129,8 +125,7 @@ def predict_all_levels(df):
     st.subheader("🧾 预测结果：")
     st.dataframe(df_featured)
 
-    result = df_featured.copy()
-
+    # SHAP
     st.subheader("📈 可解释性分析（SHAP）")
     cols = st.columns(3)
     for i, (model, name, le) in enumerate(zip([model_lvl1, model_lvl2, model_lvl3], ["Level1", "Level2", "Level3"], [le1, le2, le3])):
@@ -138,11 +133,13 @@ def predict_all_levels(df):
             st.markdown(f"#### 🔍 {name} 模型 SHAP 解释")
             explainer = shap.TreeExplainer(model)
             shap_values = explainer.shap_values(df_input)
+            class_names = le.inverse_transform(np.arange(len(le.classes_)))
             fig = plt.figure(figsize=(4, 3))
-            shap.summary_plot(shap_values, df_input, plot_type="bar", show=False)
+            shap.summary_plot(shap_values, df_input, plot_type="bar", class_names=class_names, show=False)
             st.pyplot(fig)
             plt.clf()
 
+    # 是否加入训练池
     st.subheader("🧩 是否将预测样本加入训练池？")
     if st.checkbox("✅ 确认将这些样本加入训练池用于再训练"):
         df_save = df_input.copy()
@@ -158,23 +155,15 @@ def predict_all_levels(df):
             repo_name = "chromite"
             file_path = "training_pool.csv"
             commit_msg = "update training pool"
-
             with open(file_path, "rb") as f:
                 content = f.read()
                 content_b64 = base64.b64encode(content).decode("utf-8")
-
             url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}"
-            headers = {
-                "Authorization": f"token {GITHUB_TOKEN}",
-                "Accept": "application/vnd.github+json"
-            }
-
+            headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
             r = requests.get(url, headers=headers)
             sha = r.json()["sha"] if r.status_code == 200 else None
-
             data = {"message": commit_msg, "content": content_b64, "branch": "main"}
             if sha: data["sha"] = sha
-
             put_resp = requests.put(url, headers=headers, json=data)
             if put_resp.status_code in [200, 201]:
                 st.success("✅ 已同步上传至 GitHub 仓库！")
@@ -183,10 +172,11 @@ def predict_all_levels(df):
         except Exception as e:
             st.error(f"❌ GitHub 上传失败：{e}")
 
-    now = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    # 提供下载
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        result.to_excel(writer, index=False, sheet_name='Prediction')
+        df_featured.to_excel(writer, index=False, sheet_name='Prediction')
+    now = datetime.now().strftime("%Y%m%d_%H%M%S")
     st.download_button(
         label="📥 下载预测结果 Excel",
         data=output.getvalue(),
@@ -194,16 +184,19 @@ def predict_all_levels(df):
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-# 🔄 主逻辑
-if uploaded_file is not None:
-    try:
-        if uploaded_file.name.endswith(".csv"):
-            df_uploaded = pd.read_csv(uploaded_file)
-        else:
-            df_uploaded = pd.read_excel(uploaded_file)
+# 页面主入口
+def main():
+    uploaded_file = st.file_uploader("请上传待预测的 Excel 或 CSV 文件（包含所有特征列）", type=["xlsx", "csv"])
+    if uploaded_file is not None:
+        try:
+            if uploaded_file.name.endswith(".csv"):
+                df_uploaded = pd.read_csv(uploaded_file)
+            else:
+                df_uploaded = pd.read_excel(uploaded_file)
+            df_uploaded = preprocess_uploaded_data(df_uploaded)
+            predict_all_levels(df_uploaded)
+        except Exception as e:
+            st.error(f"❌ 错误：{str(e)}")
 
-        df_uploaded = preprocess_uploaded_data(df_uploaded)
-        predict_all_levels(df_uploaded)
-
-    except Exception as e:
-        st.error(f"❌ 错误：{str(e)}")
+if __name__ == "__main__":
+    main()
