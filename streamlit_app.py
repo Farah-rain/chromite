@@ -33,6 +33,84 @@ model_lvl1, model_lvl2, model_lvl3, feature_list, le1, le2, le3 = load_model_and
 # 📤 上传数据
 uploaded_file = st.file_uploader("请上传待预测的 Excel 或 CSV 文件（包含所有特征列）", type=["xlsx", "csv"])
 
+# 🔬 上传后预处理模块：氧化态拆分 + 衍生特征
+def preprocess_uploaded_data(df):
+    # 相对分子质量
+    mol_wt = {
+        "Cr2O3": 151.99,
+        "Al2O3": 101.961,
+        "MgO": 40.304,
+        "FeO": 71.844,
+        "Fe2O3": 159.688,
+    }
+
+    # 氧化物信息（用于计算阳离子与氧总数）
+    oxide_info = {
+        'MgO': {'mol_wt': 40.304, 'cation_num': 1, 'oxygen_num': 1},
+        'Al2O3': {'mol_wt': 101.961, 'cation_num': 2, 'oxygen_num': 3},
+        'TiO2': {'mol_wt': 79.866, 'cation_num': 1, 'oxygen_num': 2},
+        'V2O3': {'mol_wt': 149.881, 'cation_num': 2, 'oxygen_num': 3},
+        'Cr2O3': {'mol_wt': 151.99, 'cation_num': 2, 'oxygen_num': 3},
+        'MnO': {'mol_wt': 70.937, 'cation_num': 1, 'oxygen_num': 1},
+        'FeO': {'mol_wt': 71.844, 'cation_num': 1, 'oxygen_num': 1},
+        'ZnO': {'mol_wt': 81.38, 'cation_num': 1, 'oxygen_num': 1},
+        'NiO': {'mol_wt': 74.692, 'cation_num': 1, 'oxygen_num': 1},
+        'SiO2': {'mol_wt': 60.084, 'cation_num': 1, 'oxygen_num': 2},
+    }
+
+    # 阳离子和氧总数
+    def compute_totals(row):
+        total_cation, total_oxygen = 0, 0
+        for oxide, info in oxide_info.items():
+            if pd.notna(row.get(oxide)):
+                mol = row[oxide] / info['mol_wt']
+                total_cation += mol * info['cation_num']
+                total_oxygen += mol * info['oxygen_num']
+        return pd.Series([total_cation, total_oxygen])
+
+    df[['Cation_Total', 'Oxygen_Total']] = df.apply(compute_totals, axis=1)
+    oxygen_expected = df['Cation_Total'] * 1.5
+    oxygen_deficit = oxygen_expected - df['Oxygen_Total']
+    FeO_mol = df['FeO'] / mol_wt['FeO']
+    Fe3_mol = (oxygen_deficit * 2).clip(lower=0, upper=FeO_mol)
+    Fe2_mol = FeO_mol - Fe3_mol
+    df['FeO_recalc'] = Fe2_mol * mol_wt['FeO']
+    df['Fe2O3_calc'] = Fe3_mol * mol_wt['Fe2O3'] / 2
+    df['FeO_total'] = df['FeO_recalc'] + df['Fe2O3_calc'] * 0.8998  # 等效总Fe
+
+    # ==== 衍生特征计算 ====
+    Cr_mol = df['Cr2O3'] / mol_wt['Cr2O3'] * 2
+    Al_mol = df['Al2O3'] / mol_wt['Al2O3'] * 2
+    Mg_mol = df['MgO'] / mol_wt['MgO']
+    Fe2_mol = df['FeO_recalc'] / mol_wt['FeO']
+    Fe3_mol = df['Fe2O3_calc'] / mol_wt['Fe2O3'] * 2
+
+    df['Cr_CrplusAl'] = Cr_mol / (Cr_mol + Al_mol)
+    df['Mg_MgplusFe'] = Mg_mol / (Mg_mol + Fe2_mol)
+    df['FeCrAlFe'] = Fe3_mol / (Fe3_mol + Cr_mol + Al_mol)
+    df['FeMgFe'] = Fe2_mol / (Fe2_mol + Mg_mol)
+
+    return df
+
+
+# 🧩 主逻辑中整合位置（你已有的 uploaded_file 判断里）：
+if uploaded_file is not None:
+    try:
+        if uploaded_file.name.endswith(".csv"):
+            df_uploaded = pd.read_csv(uploaded_file)
+        else:
+            df_uploaded = pd.read_excel(uploaded_file)
+
+        # 🧬 预处理 FeO/Fe2O3 氧化态拆分
+        df_uploaded = preprocess_iron_oxidation(df_uploaded)
+
+        # 📤 调用原预测系统
+        predict_all_levels(df_uploaded)
+
+    except Exception as e:
+        st.error(f"❌ 错误：{str(e)}")
+
+
 # 🔍 预测函数
 def predict_all_levels(df):
     df_input = df.copy()
@@ -166,6 +244,13 @@ if uploaded_file is not None:
             df_uploaded = pd.read_csv(uploaded_file)
         else:
             df_uploaded = pd.read_excel(uploaded_file)
+
+        # 🌋 自动预处理 + 特征衍生
+        df_uploaded = preprocess_uploaded_data(df_uploaded)
+
+        # 📤 模型预测
         predict_all_levels(df_uploaded)
+
     except Exception as e:
         st.error(f"❌ 错误：{str(e)}")
+
