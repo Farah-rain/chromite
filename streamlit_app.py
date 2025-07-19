@@ -57,15 +57,15 @@ def preprocess_uploaded_data(df):
                 mol = row[oxide] / info['mol_wt']
                 total_pos += mol * info['cation_num'] * info['valence']
                 total_neg += mol * info['oxygen_num'] * 2
-        Fe_total_wt = row['FeO']
-        Fe_total_mol = Fe_total_wt / mol_wt['FeO']
+        Fe_total_wt = row['FeOT']
+        Fe_total_mol = Fe_total_wt / mol_wt['FeOT']
         Fe3_mol = max(0.0, total_neg - total_pos)
         Fe3_mol = min(Fe3_mol, Fe_total_mol)
         Fe2_mol = Fe_total_mol - Fe3_mol
         ferrous_frac = Fe2_mol / Fe_total_mol if Fe_total_mol > 0 else 0.0
         ferric_frac = Fe3_mol / Fe_total_mol if Fe_total_mol > 0 else 0.0
-        FeOre_val = ferrous_frac * row['FeO']
-        Fe2O3re_val = ferric_frac * row['FeO'] * 1.1113
+        FeOre_val = ferrous_frac * row['FeOT']
+        Fe2O3re_val = ferric_frac * row['FeOT'] * 1.1113
         FeOre_list.append(FeOre_val)
         Fe2O3re_list.append(Fe2O3re_val)
     df['FeOre'] = FeOre_list
