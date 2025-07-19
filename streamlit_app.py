@@ -108,7 +108,7 @@ def predict_all_levels(df):
 
     prob1 = model_lvl1.predict_proba(df_input)
     pred1 = le1.inverse_transform(np.argmax(prob1, axis=1))
-    mask2 = pred1 == "extraterrestrial"
+    mask2 = pred1 == "Extraterrestrial"
 
     prob2 = np.full((len(df_input), len(le2.classes_)), np.nan)
     pred2 = np.full(len(df_input), "", dtype=object)
@@ -119,7 +119,7 @@ def predict_all_levels(df):
         prob2[mask2] = prob2_mask
         pred2[mask2] = pred2_mask
 
-    mask3 = np.isin(pred2, ["OC", "CC"])
+    mask3 = np.isin(pred2, ["EOC","UOC", "CC"])
     prob3 = np.full((len(df_input), len(le3.classes_)), np.nan)
     pred3 = np.full(len(df_input), "", dtype=object)
     if np.any(mask3):
