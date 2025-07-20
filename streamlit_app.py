@@ -56,29 +56,34 @@ def preprocess_uploaded_data(df):
 
     df = df.rename(columns={"FeOT": "FeO"}) if "FeOT" in df.columns else df
 
-    FeOre_list = []
-    Fe2O3re_list = []
-    for i, row in df.iterrows():
-        total_pos, total_neg = 0.0, 0.0
-        for oxide, info in oxide_info.items():
-            if oxide in row and not pd.isna(row[oxide]):
-                mol = row[oxide] / info['mol_wt']
-                total_pos += mol * info['cation_num'] * info['valence']
-                total_neg += mol * info['oxygen_num'] * 2
-        Fe_total_wt = row['FeO']
-        Fe_total_mol = Fe_total_wt / mol_wt['FeO']
-        Fe3_mol = max(0.0, total_neg - total_pos)
-        Fe3_mol = min(Fe3_mol, Fe_total_mol)
-        Fe2_mol = Fe_total_mol - Fe3_mol
-        ferrous_frac = Fe2_mol / Fe_total_mol if Fe_total_mol > 0 else 0.0
-        ferric_frac = Fe3_mol / Fe_total_mol if Fe_total_mol > 0 else 0.0
-        FeOre_val = ferrous_frac * Fe_total_wt
-        Fe2O3re_val = ferric_frac * Fe_total_wt * 1.1113
-        FeOre_list.append(FeOre_val)
-        Fe2O3re_list.append(Fe2O3re_val)
+    has_fe = 'FeO' in df.columns and 'Fe2O3' in df.columns
+    if not has_fe:
+        FeOre_list = []
+        Fe2O3re_list = []
+        for i, row in df.iterrows():
+            total_pos, total_neg = 0.0, 0.0
+            for oxide, info in oxide_info.items():
+                if oxide in row and not pd.isna(row[oxide]):
+                    mol = row[oxide] / info['mol_wt']
+                    total_pos += mol * info['cation_num'] * info['valence']
+                    total_neg += mol * info['oxygen_num'] * 2
+            Fe_total_wt = row['FeO'] if 'FeO' in row and not pd.isna(row['FeO']) else 0
+            Fe_total_mol = Fe_total_wt / mol_wt['FeO'] if Fe_total_wt > 0 else 0
+            Fe3_mol = max(0.0, total_neg - total_pos)
+            Fe3_mol = min(Fe3_mol, Fe_total_mol)
+            Fe2_mol = Fe_total_mol - Fe3_mol
+            ferrous_frac = Fe2_mol / Fe_total_mol if Fe_total_mol > 0 else 0.0
+            ferric_frac = Fe3_mol / Fe_total_mol if Fe_total_mol > 0 else 0.0
+            FeOre_val = ferrous_frac * Fe_total_wt
+            Fe2O3re_val = ferric_frac * Fe_total_wt * 1.1113
+            FeOre_list.append(FeOre_val)
+            Fe2O3re_list.append(Fe2O3re_val)
+        df['FeOre'] = FeOre_list
+        df['Fe2O3re'] = Fe2O3re_list
+    else:
+        df['FeOre'] = df['FeO']
+        df['Fe2O3re'] = df['Fe2O3']
 
-    df['FeOre'] = FeOre_list
-    df['Fe2O3re'] = Fe2O3re_list
     df['FeO_total'] = df['FeOre'] + df['Fe2O3re'] * 0.8998
 
     Cr_mol = df['Cr2O3'] / mol_wt['Cr2O3'] * 2
@@ -93,6 +98,7 @@ def preprocess_uploaded_data(df):
     df['FeMgFe'] = Fe2_mol / (Fe2_mol + Mg_mol)
 
     return df
+
 
 # 上传文件并处理
 uploaded_file = st.file_uploader("请上传待预测的 Excel 或 CSV 文件（包含所有特征列）", type=["xlsx", "csv"])
