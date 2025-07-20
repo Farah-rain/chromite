@@ -29,6 +29,11 @@ def load_model_and_metadata():
 
 model_lvl1, model_lvl2, model_lvl3, feature_list, le1, le2, le3 = load_model_and_metadata()
 
+def normalize_label(label):
+    return str(label).strip().lower()
+
+normalize_array = np.vectorize(normalize_label)
+
 # 数据预处理函数
 def preprocess_uploaded_data(df):
     mol_wt = {
@@ -108,7 +113,7 @@ if uploaded_file is not None:
     pred1_idx = np.argmax(prob1, axis=1)
     pred1_label = le1.inverse_transform(pred1_idx)
 
-    mask_lvl2 = (pred1_label == "extraterrestrial")
+    mask_lvl2 = normalize_array(pred1_label) == "extraterrestrial"
     df_lvl2 = df_input[mask_lvl2]
     prob2 = np.full((len(df_input), len(le2.classes_)), np.nan)
     pred2_label = np.full(len(df_input), "", dtype=object)
@@ -119,8 +124,7 @@ if uploaded_file is not None:
         prob2[mask_lvl2] = prob2_masked
         pred2_label[mask_lvl2] = pred2_masked
 
-    mask_lvl3 = (pred2_label == "UOC") | (pred2_label == "CC") | (pred2_label == "EOC")
-
+    mask_lvl3 = np.isin(normalize_array(pred2_label), ["uoc", "eoc", "cc"])
     df_lvl3 = df_input[mask_lvl3]
     prob3 = np.full((len(df_input), len(le3.classes_)), np.nan)
     pred3_label = np.full(len(df_input), "", dtype=object)
@@ -208,4 +212,3 @@ if uploaded_file is not None:
         file_name="prediction_results.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-
