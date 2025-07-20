@@ -9,15 +9,19 @@ Iron
 Lunar
 Mars
 Mesosiderite
-OC
-PA
+UOC
+PACs
 Pallasite
+EOC
 
 # Level3
 CM
 CO
 CR-clan
 CV
-H
-L
-LL
+UOC-H
+UOC-L
+UOC-LL
+EOC-H
+EOC-L
+EOC-LL
