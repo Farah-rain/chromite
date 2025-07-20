@@ -15,6 +15,13 @@ from datetime import datetime
 st.set_page_config(page_title="铬铁矿地外来源判别系统", layout="wide")
 st.title("✨ 铬铁矿 地外来源判别系统")
 
+# 合法的三级分类映射
+valid_lvl3 = {
+    "UOC": {"UOC-H", "UOC-L", "UOC-LL"},
+    "EOC": {"EOC-H", "EOC-L", "EOC-LL"},
+    "CC": {"CM", "CR-clan", "CV", "CO"}
+}
+
 # 加载模型和特征
 @st.cache_resource
 def load_model_and_metadata():
@@ -34,7 +41,7 @@ def normalize_label(label):
 
 normalize_array = np.vectorize(normalize_label)
 
-# 数据预处理函数
+# 数据预处理函数（完整保留并新增 Fe 自动判断）
 def preprocess_uploaded_data(df):
     mol_wt = {
         "Cr2O3": 151.99, "Al2O3": 101.961, "MgO": 40.304,
@@ -55,20 +62,23 @@ def preprocess_uploaded_data(df):
     }
 
     df = df.rename(columns={"FeOT": "FeO"}) if "FeOT" in df.columns else df
+    use_uploaded_fe = "FeO" in df.columns and "Fe2O3" in df.columns
 
-    has_fe = 'FeO' in df.columns and 'Fe2O3' in df.columns
-    if not has_fe:
-        FeOre_list = []
-        Fe2O3re_list = []
-        for i, row in df.iterrows():
+    FeOre_list = []
+    Fe2O3re_list = []
+    for i, row in df.iterrows():
+        if use_uploaded_fe and not (pd.isna(row['FeO']) or pd.isna(row['Fe2O3'])):
+            FeOre_val = row['FeO']
+            Fe2O3re_val = row['Fe2O3']
+        else:
             total_pos, total_neg = 0.0, 0.0
             for oxide, info in oxide_info.items():
                 if oxide in row and not pd.isna(row[oxide]):
                     mol = row[oxide] / info['mol_wt']
                     total_pos += mol * info['cation_num'] * info['valence']
                     total_neg += mol * info['oxygen_num'] * 2
-            Fe_total_wt = row['FeO'] if 'FeO' in row and not pd.isna(row['FeO']) else 0
-            Fe_total_mol = Fe_total_wt / mol_wt['FeO'] if Fe_total_wt > 0 else 0
+            Fe_total_wt = row['FeO'] if 'FeO' in row and not pd.isna(row['FeO']) else 0.0
+            Fe_total_mol = Fe_total_wt / mol_wt['FeO'] if Fe_total_wt else 0.0
             Fe3_mol = max(0.0, total_neg - total_pos)
             Fe3_mol = min(Fe3_mol, Fe_total_mol)
             Fe2_mol = Fe_total_mol - Fe3_mol
@@ -76,14 +86,12 @@ def preprocess_uploaded_data(df):
             ferric_frac = Fe3_mol / Fe_total_mol if Fe_total_mol > 0 else 0.0
             FeOre_val = ferrous_frac * Fe_total_wt
             Fe2O3re_val = ferric_frac * Fe_total_wt * 1.1113
-            FeOre_list.append(FeOre_val)
-            Fe2O3re_list.append(Fe2O3re_val)
-        df['FeOre'] = FeOre_list
-        df['Fe2O3re'] = Fe2O3re_list
-    else:
-        df['FeOre'] = df['FeO']
-        df['Fe2O3re'] = df['Fe2O3']
 
+        FeOre_list.append(FeOre_val)
+        Fe2O3re_list.append(Fe2O3re_val)
+
+    df['FeOre'] = FeOre_list
+    df['Fe2O3re'] = Fe2O3re_list
     df['FeO_total'] = df['FeOre'] + df['Fe2O3re'] * 0.8998
 
     Cr_mol = df['Cr2O3'] / mol_wt['Cr2O3'] * 2
@@ -98,7 +106,6 @@ def preprocess_uploaded_data(df):
     df['FeMgFe'] = Fe2_mol / (Fe2_mol + Mg_mol)
 
     return df
-
 
 # 上传文件并处理
 uploaded_file = st.file_uploader("请上传待预测的 Excel 或 CSV 文件（包含所有特征列）", type=["xlsx", "csv"])
@@ -138,8 +145,16 @@ if uploaded_file is not None:
         prob3_masked = model_lvl3.predict_proba(df_lvl3)
         idx3 = np.argmax(prob3_masked, axis=1)
         pred3_masked = le3.inverse_transform(idx3)
+        pred2_masked_set = np.array(pred2_label)[mask_lvl3]
+        pred3_validated = []
+        for p2, p3 in zip(pred2_masked_set, pred3_masked):
+            valid_set = valid_lvl3.get(p2, set())
+            if p3 in valid_set:
+                pred3_validated.append(p3)
+            else:
+                pred3_validated.append("无效")
         prob3[mask_lvl3] = prob3_masked
-        pred3_label[mask_lvl3] = pred3_masked
+        pred3_label[mask_lvl3] = pred3_validated
 
     df_display = df_uploaded.copy().reset_index(drop=True)
     df_display.insert(0, "序号", df_display.index + 1)
