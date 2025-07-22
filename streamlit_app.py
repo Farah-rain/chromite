@@ -17,7 +17,7 @@ st.title("✨ 铬铁矿 地外来源判别系统")
 
 # 合法的三级分类映射
 valid_lvl3 = {
-    "UOC": {"UOC-H", "UOC-L", "UOC-LL"},
+   
     "EOC": {"EOC-H", "EOC-L", "EOC-LL"},
     "CC": {"CM", "CR-clan", "CV", "CO"}
 }
@@ -61,24 +61,27 @@ def preprocess_uploaded_data(df):
         'NiO':   {'mol_wt': 74.692,  'cation_num': 1, 'valence': 2, 'oxygen_num': 1}
     }
 
-    df = df.rename(columns={"FeOT": "FeO"}) if "FeOT" in df.columns else df
     use_uploaded_fe = "FeO" in df.columns and "Fe2O3" in df.columns
+    use_feot = "FeOT" in df.columns and not use_uploaded_fe
+
+    if use_feot:
+        df = df.rename(columns={"FeOT": "FeO"})
 
     FeOre_list = []
     Fe2O3re_list = []
     for i, row in df.iterrows():
-        if use_uploaded_fe and not (pd.isna(row['FeO']) or pd.isna(row['Fe2O3'])):
-            FeOre_val = row['FeO']
-            Fe2O3re_val = row['Fe2O3']
-        else:
+        if use_uploaded_fe and not (pd.isna(row["FeO"]) or pd.isna(row["Fe2O3"])):
+            FeOre_val = row["FeO"]
+            Fe2O3re_val = row["Fe2O3"]
+        elif use_feot and not pd.isna(row["FeO"]):
             total_pos, total_neg = 0.0, 0.0
             for oxide, info in oxide_info.items():
                 if oxide in row and not pd.isna(row[oxide]):
-                    mol = row[oxide] / info['mol_wt']
-                    total_pos += mol * info['cation_num'] * info['valence']
-                    total_neg += mol * info['oxygen_num'] * 2
-            Fe_total_wt = row['FeO'] if 'FeO' in row and not pd.isna(row['FeO']) else 0.0
-            Fe_total_mol = Fe_total_wt / mol_wt['FeO'] if Fe_total_wt else 0.0
+                    mol = row[oxide] / info["mol_wt"]
+                    total_pos += mol * info["cation_num"] * info["valence"]
+                    total_neg += mol * info["oxygen_num"] * 2
+            Fe_total_wt = row["FeO"]
+            Fe_total_mol = Fe_total_wt / mol_wt["FeO"] if Fe_total_wt else 0.0
             Fe3_mol = max(0.0, total_neg - total_pos)
             Fe3_mol = min(Fe3_mol, Fe_total_mol)
             Fe2_mol = Fe_total_mol - Fe3_mol
@@ -86,26 +89,30 @@ def preprocess_uploaded_data(df):
             ferric_frac = Fe3_mol / Fe_total_mol if Fe_total_mol > 0 else 0.0
             FeOre_val = ferrous_frac * Fe_total_wt
             Fe2O3re_val = ferric_frac * Fe_total_wt * 1.1113
+        else:
+            FeOre_val = np.nan
+            Fe2O3re_val = np.nan
 
         FeOre_list.append(FeOre_val)
         Fe2O3re_list.append(Fe2O3re_val)
 
-    df['FeOre'] = FeOre_list
-    df['Fe2O3re'] = Fe2O3re_list
-    df['FeO_total'] = df['FeOre'] + df['Fe2O3re'] * 0.8998
+    df["FeOre"] = FeOre_list
+    df["Fe2O3re"] = Fe2O3re_list
+    df["FeO_total"] = df["FeOre"] + df["Fe2O3re"] * 0.8998
 
-    Cr_mol = df['Cr2O3'] / mol_wt['Cr2O3'] * 2
-    Al_mol = df['Al2O3'] / mol_wt['Al2O3'] * 2
-    Mg_mol = df['MgO'] / mol_wt['MgO']
-    Fe2_mol = df['FeOre'] / mol_wt['FeO']
-    Fe3_mol = df['Fe2O3re'] / mol_wt['Fe2O3'] * 2
+    Cr_mol = df["Cr2O3"] / mol_wt["Cr2O3"] * 2
+    Al_mol = df["Al2O3"] / mol_wt["Al2O3"] * 2
+    Mg_mol = df["MgO"] / mol_wt["MgO"]
+    Fe2_mol = df["FeOre"] / mol_wt["FeO"]
+    Fe3_mol = df["Fe2O3re"] / mol_wt["Fe2O3"] * 2
 
-    df['Cr_CrplusAl'] = Cr_mol / (Cr_mol + Al_mol)
-    df['Mg_MgplusFe'] = Mg_mol / (Mg_mol + Fe2_mol)
-    df['FeCrAlFe'] = Fe3_mol / (Fe3_mol + Cr_mol + Al_mol)
-    df['FeMgFe'] = Fe2_mol / (Fe2_mol + Mg_mol)
+    df["Cr_CrplusAl"] = Cr_mol / (Cr_mol + Al_mol)
+    df["Mg_MgplusFe"] = Mg_mol / (Mg_mol + Fe2_mol)
+    df["FeCrAlFe"] = Fe3_mol / (Fe3_mol + Cr_mol + Al_mol)
+    df["FeMgFe"] = Fe2_mol / (Fe2_mol + Mg_mol)
 
     return df
+
 
 # 上传文件并处理
 uploaded_file = st.file_uploader("请上传待预测的 Excel 或 CSV 文件（包含所有特征列）", type=["xlsx", "csv"])
@@ -137,7 +144,7 @@ if uploaded_file is not None:
         prob2[mask_lvl2] = prob2_masked
         pred2_label[mask_lvl2] = pred2_masked
 
-    mask_lvl3 = np.isin(normalize_array(pred2_label), ["uoc", "eoc", "cc"])
+    mask_lvl3 = np.isin(normalize_array(pred2_label), ["eoc", "cc"])
     df_lvl3 = df_input[mask_lvl3]
     prob3 = np.full((len(df_input), len(le3.classes_)), np.nan)
     pred3_label = np.full(len(df_input), "", dtype=object)
