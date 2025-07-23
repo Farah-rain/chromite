@@ -17,7 +17,6 @@ st.title("✨ 铬铁矿 地外来源判别系统")
 
 # 合法的三级分类映射
 valid_lvl3 = {
-   
     "EOC": {"EOC-H", "EOC-L", "EOC-LL"},
     "CC": {"CM", "CR-clan", "CV", "CO"}
 }
@@ -43,63 +42,66 @@ normalize_array = np.vectorize(normalize_label)
 
 # 数据预处理函数（完整保留并新增 Fe 自动判断）
 def preprocess_uploaded_data(df):
-    mol_wt = {
-        "Cr2O3": 151.99, "Al2O3": 101.961, "MgO": 40.304,
-        "FeO": 71.844, "Fe2O3": 159.688,
+    # === 1. 定义常量 ===
+    MW = {
+        'TiO2': 79.866, 'Al2O3': 101.961, 'Cr2O3': 151.99,
+        'FeO': 71.844, 'MnO': 70.937, 'MgO': 40.304,
+        'ZnO': 81.38, 'SiO2': 60.0843, 'V2O3': 149.88
     }
-    oxide_info = {
-        'SiO2':  {'mol_wt': 60.084,  'cation_num': 1, 'valence': 4, 'oxygen_num': 2},
-        'TiO2':  {'mol_wt': 79.866,  'cation_num': 1, 'valence': 4, 'oxygen_num': 2},
-        'Al2O3': {'mol_wt': 101.961, 'cation_num': 2, 'valence': 3, 'oxygen_num': 3},
-        'FeO':   {'mol_wt': 71.844,  'cation_num': 1, 'valence': 2, 'oxygen_num': 1},
-        'MnO':   {'mol_wt': 70.937,  'cation_num': 1, 'valence': 2, 'oxygen_num': 1},
-        'MgO':   {'mol_wt': 40.304,  'cation_num': 1, 'valence': 2, 'oxygen_num': 1},
-        'CaO':   {'mol_wt': 56.077,  'cation_num': 1, 'valence': 2, 'oxygen_num': 1},
-        'Na2O':  {'mol_wt': 61.979,  'cation_num': 2, 'valence': 1, 'oxygen_num': 1},
-        'K2O':   {'mol_wt': 94.196,  'cation_num': 2, 'valence': 1, 'oxygen_num': 1},
-        'Cr2O3': {'mol_wt': 151.990, 'cation_num': 2, 'valence': 3, 'oxygen_num': 3},
-        'NiO':   {'mol_wt': 74.692,  'cation_num': 1, 'valence': 2, 'oxygen_num': 1}
+    O_num  = {
+        'TiO2': 2, 'Al2O3': 3, 'Cr2O3': 3, 'FeO': 1,
+        'MnO': 1, 'MgO': 1, 'ZnO': 1, 'SiO2': 2, 'V2O3': 3
     }
+    Cat_num= {
+        'TiO2': 1, 'Al2O3': 2, 'Cr2O3': 2, 'FeO': 1,
+        'MnO': 1, 'MgO': 1, 'ZnO': 1, 'SiO2': 1, 'V2O3': 2
+    }
+    FE2O3_OVER_FEO_FE_EQ = 159.688 / (2 * 71.844)
 
-    use_uploaded_fe = "FeO" in df.columns and "Fe2O3" in df.columns
-    use_feot = "FeOT" in df.columns and not use_uploaded_fe
+    for ox in MW:
+        if ox not in df.columns:
+            df[ox] = 0.0
 
-    if use_feot:
-        df = df.rename(columns={"FeOT": "FeO"})
+    df = df.copy()
 
-    FeOre_list = []
-    Fe2O3re_list = []
-    for i, row in df.iterrows():
-        if use_uploaded_fe and not (pd.isna(row["FeO"]) or pd.isna(row["Fe2O3"])):
-            FeOre_val = row["FeO"]
-            Fe2O3re_val = row["Fe2O3"]
-        elif use_feot and not pd.isna(row["FeO"]):
-            total_pos, total_neg = 0.0, 0.0
-            for oxide, info in oxide_info.items():
-                if oxide in row and not pd.isna(row[oxide]):
-                    mol = row[oxide] / info["mol_wt"]
-                    total_pos += mol * info["cation_num"] * info["valence"]
-                    total_neg += mol * info["oxygen_num"] * 2
-            Fe_total_wt = row["FeO"]
-            Fe_total_mol = Fe_total_wt / mol_wt["FeO"] if Fe_total_wt else 0.0
-            Fe3_mol = max(0.0, total_neg - total_pos)
-            Fe3_mol = min(Fe3_mol, Fe_total_mol)
-            Fe2_mol = Fe_total_mol - Fe3_mol
-            ferrous_frac = Fe2_mol / Fe_total_mol if Fe_total_mol > 0 else 0.0
-            ferric_frac = Fe3_mol / Fe_total_mol if Fe_total_mol > 0 else 0.0
-            FeOre_val = ferrous_frac * Fe_total_wt
-            Fe2O3re_val = ferric_frac * Fe_total_wt * 1.1113
-        else:
-            FeOre_val = np.nan
-            Fe2O3re_val = np.nan
+    use_manual_fe = "FeO" in df.columns and "Fe2O3" in df.columns
+    if use_manual_fe:
+        df = df.rename(columns={"FeO": "FeOre", "Fe2O3": "Fe2O3re"})
+        df["FeO_total"] = df["FeOre"] + df["Fe2O3re"] * 0.8998
+    else:
+        def fe_split_spinel(row, O_basis=32):
+            moles = {ox: row[ox]/MW[ox] for ox in MW if ox != 'FeO'}
+            moles['FeO'] = row['FeOT'] / MW['FeO'] if pd.notna(row.get('FeOT')) else 0.0
 
-        FeOre_list.append(FeOre_val)
-        Fe2O3re_list.append(Fe2O3re_val)
+            O_total = sum(moles[ox] * O_num[ox] for ox in moles)
+            fac = O_basis / O_total if O_total > 0 else 0.0
 
-    df["FeOre"] = FeOre_list
-    df["Fe2O3re"] = Fe2O3re_list
-    df["FeO_total"] = df["FeOre"] + df["Fe2O3re"] * 0.8998
+            cations = {ox: moles[ox] * Cat_num[ox] * fac for ox in moles}
+            S = sum(cations.values())
+            T = 24.0
 
+            Fe_total_apfu = cations['FeO']
+            Fe3_apfu = max(0.0, 2 * O_basis * (1 - T / S)) if S > 0 else 0.0
+            Fe3_apfu = min(Fe3_apfu, Fe_total_apfu)
+            Fe2_apfu = Fe_total_apfu - Fe3_apfu
+
+            Fe2_frac = Fe2_apfu / Fe_total_apfu if Fe_total_apfu > 0 else 0.0
+            Fe3_frac = Fe3_apfu / Fe_total_apfu if Fe_total_apfu > 0 else 0.0
+
+            FeO_wt = Fe2_frac * row['FeOT']
+            Fe2O3_wt = Fe3_frac * row['FeOT'] * FE2O3_OVER_FEO_FE_EQ
+
+            return pd.Series({
+                'FeOre': FeO_wt,
+                'Fe2O3re': Fe2O3_wt,
+                'Fe2_frac': Fe2_frac,
+                'Fe3_frac': Fe3_frac,
+                'FeO_total': FeO_wt + Fe2O3_wt * 0.8998
+            })
+
+        df = df.join(df.apply(fe_split_spinel, axis=1))
+
+    mol_wt = {'Cr2O3': 151.99, 'Al2O3': 101.961, 'MgO': 40.304, 'FeO': 71.844, 'Fe2O3': 159.688}
     Cr_mol = df["Cr2O3"] / mol_wt["Cr2O3"] * 2
     Al_mol = df["Al2O3"] / mol_wt["Al2O3"] * 2
     Mg_mol = df["MgO"] / mol_wt["MgO"]
@@ -112,6 +114,8 @@ def preprocess_uploaded_data(df):
     df["FeMgFe"] = Fe2_mol / (Fe2_mol + Mg_mol)
 
     return df
+
+
 
 
 # 上传文件并处理
