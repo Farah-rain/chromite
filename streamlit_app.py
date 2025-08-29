@@ -27,7 +27,7 @@ ABSTAIN_LABEL = "Unknown"  # Unknown 标签统一口径
 THRESHOLDS = {"Level2": 0.90, "Level3": 0.90}  # Level2/Level3 的放行阈值
 # 父类键仅 "OC" / "CC"；CC 的三级包含 "CM-CO"（与你训练脚本一致）
 valid_lvl3 = {
-    "OC": {"EOC-H", "EOC-L", "EOC-LL"},
+    "OC": {"EOC-H", "EOC-L", "EOC-LL", "UOC"},
     "CC": {"CM-CO", "CR-clan", "CV"}
 }
 
