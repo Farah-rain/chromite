@@ -1,7 +1,9 @@
 # app.py
 # ==================== 说明 ====================
-# 应用户要求：界面/文案全部英文；注释全部中文，便于你阅读维护。
-# 这是在你现有最小改动基础上的英文化版本，逻辑与训练口径保持一致（Level2/Level3 启用阈值+Unknown）。
+# 界面/文案全部英文；注释全部中文，便于你阅读维护。
+# 修复点：
+# 1) 将 np.char.strip/lower 改为 pandas 字符串管道，避免 object/NaN 导致的 UFUNCTypeError
+# 2) 与训练口径一致：Level2/Level3 启用阈值 + Unknown；L3 加父子约束
 # =================================================
 
 import streamlit as st
@@ -199,7 +201,16 @@ if uploaded_file is not None:
         pred1_label = classes1[pred1_idx]
 
         # Level2（仅 L1=Extraterrestrial；阈值放行 -> Unknown）
-        mask_lvl2 = np.char.lower(np.char.strip(pred1_label)) == "extraterrestrial"
+        # 安全标准化：把 None/NaN 变成空串，再 strip+lower（避免 UFUNCTypeError）
+        _pred1_norm = (
+            pd.Series(pred1_label, dtype="object")
+              .astype("string")
+              .str.strip()
+              .str.lower()
+              .fillna("")
+        )
+        mask_lvl2 = (_pred1_norm == "extraterrestrial").to_numpy()
+
         prob2 = np.full((len(df_input), len(model_lvl2.classes_)), np.nan)
         pred2_label = np.full(len(df_input), "", dtype=object)
 
@@ -211,7 +222,15 @@ if uploaded_file is not None:
             pred2_label[mask_lvl2] = pred2_masked
 
         # Level3（由预测到的二级路由 + 父子约束 + 阈值放行）
-        mask_lvl3 = np.isin(np.char.lower(np.char.strip(pred2_label)), ["oc", "cc"])
+        _pred2_norm = (
+            pd.Series(pred2_label, dtype="object")
+              .astype("string")
+              .str.strip()
+              .str.lower()
+              .fillna("")
+        )
+        mask_lvl3 = _pred2_norm.isin(["oc", "cc"]).to_numpy()
+
         prob3 = np.full((len(df_input), len(model_lvl3.classes_)), np.nan)
         pred3_label = np.full(len(df_input), "", dtype=object)
 
