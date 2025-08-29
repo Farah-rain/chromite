@@ -4,6 +4,7 @@
 # 修复点：
 # 1) 将 np.char.strip/lower 改为 pandas 字符串管道，避免 object/NaN 导致的 UFUNCTypeError
 # 2) 与训练口径一致：Level2/Level3 启用阈值 + Unknown；L3 加父子约束
+# 3) Streamlit 缓存 SHAP explainer：使用“签名 + 下划线参数”规避 UnhashableParamError
 # =================================================
 
 import streamlit as st
@@ -60,10 +61,24 @@ def load_model_and_metadata():
             st.stop()
     return model_lvl1, model_lvl2, model_lvl3, features
 
+# ==== 新的 explainer 缓存实现：用“签名 + 下划线参数”避免对模型对象做哈希 ====
 @st.cache_resource
-def _make_explainer(model):
-    """缓存 SHAP explainer，避免重复初始化。"""
-    return shap.TreeExplainer(model)
+def _make_explainer_cached(sig: str, _model):
+    """缓存 SHAP explainer；sig 作为缓存键，_model 不参与哈希。"""
+    return shap.TreeExplainer(_model)
+
+def _model_signature(model) -> str:
+    """构造一个可哈希的模型签名：模型类名 + 排序后的超参 + 类别列表"""
+    try:
+        params = model.get_params()
+        params_tup = tuple(sorted((k, str(v)) for k, v in params.items()))
+    except Exception:
+        params_tup = ()
+    try:
+        classes = tuple(map(str, getattr(model, "classes_", ())))
+    except Exception:
+        classes = ()
+    return f"{model.__class__.__name__}|{hash(params_tup)}|{hash(classes)}"
 
 def preprocess_uploaded_data(df):
     """
@@ -275,7 +290,8 @@ if uploaded_file is not None:
         for col, (model, name) in zip(cols, [(model_lvl1, "Level1"), (model_lvl2, "Level2"), (model_lvl3, "Level3")]):
             with col:
                 st.markdown(f"#### 🔍 {name} Model")
-                explainer = _make_explainer(model)
+                # 使用新的缓存接口（签名 + 下划线参数）避免对模型对象哈希
+                explainer = _make_explainer_cached(_model_signature(model), _model=model)
                 shap_values = explainer.shap_values(df_input)
 
                 # 条形图：当前上传批次的全局重要性（平均 |SHAP|）
