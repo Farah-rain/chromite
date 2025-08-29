@@ -1,9 +1,11 @@
 # app.py
 # ==================== 说明 ====================
-# 新增板块：在 SHAP 下方、Training Pool / Download 之前，增加“样品一致性确认 + 组结果”
-# 逻辑：用户确认来自同一块样品后，给出整组最终类别 + 概率（优先 L3→L2→L1）
-# 概率 = 该组内“被选中类别”的平均最大概率；同步显示一致性占比
-# 其余：沿用你之前的修复（阈值放行、父子约束、SHAP 缓存等）
+# 界面/文案全部英文；注释全部中文，便于你阅读维护。
+# 已包含修复/特性：
+# 1) 用 pandas 字符串管道替代 np.char.*（避免 UFUNCTypeError）
+# 2) Level2/Level3 启用阈值 + Unknown；Level3 父子约束
+# 3) SHAP explainer 使用“签名 + 下划线参数”缓存（规避 UnhashableParamError）
+# 4) 新增“样品一致性确认 + 组结果”板块：按“占比最大”为最终类别，概率取该类在组内的平均概率；优先 L3→L2→L1
 # =================================================
 
 import streamlit as st
@@ -17,22 +19,22 @@ import requests
 import base64
 from io import BytesIO
 
-# -------------------- 页面配置 --------------------
+# -------------------- 页面配置（仅 UI 英文） --------------------
 st.set_page_config(page_title="Chromite Extraterrestrial Origin Classifier", layout="wide")
 st.title("✨ Chromite Extraterrestrial Origin Classifier")
 
-# -------------------- 常量与映射 --------------------
-ABSTAIN_LABEL = "Unknown"
-THRESHOLDS = {"Level2": 0.90, "Level3": 0.90}
+# -------------------- 常量与映射（与训练一致；注释中文） --------------------
+ABSTAIN_LABEL = "Unknown"  # Unknown 标签统一口径
+THRESHOLDS = {"Level2": 0.90, "Level3": 0.90}  # Level2/Level3 的放行阈值
+# 父类键与子类集合（注意：若模型没有聚合类 "UOC"，需改成 UOC-H/L/LL）
 valid_lvl3 = {
-    # 你的业务：OC 下允许 EOC 三档 + UOC 聚合类（若模型无聚合 UOC，可改为 UOC-H/L/LL 三档）
     "OC": {"EOC-H", "EOC-L", "EOC-LL", "UOC"},
     "CC": {"CM-CO", "CR-clan", "CV"}
 }
 
-# -------------------- 工具函数 --------------------
+# -------------------- 小工具函数（注释中文） --------------------
 def apply_threshold(proba: np.ndarray, classes: np.ndarray, thr: float):
-    """对分类概率应用阈值：最大概率>=thr 时输出该类别，否则 Unknown。"""
+    """对分类概率应用阈值：最大概率>=thr 时输出该类别，否则 Unknown。返回(预测, 最大概率)。"""
     max_idx = np.argmax(proba, axis=1)
     max_val = proba[np.arange(proba.shape[0]), max_idx]
     pred = np.where(max_val >= thr, classes[max_idx], ABSTAIN_LABEL)
@@ -60,7 +62,7 @@ def load_model_and_metadata():
             st.stop()
     return model_lvl1, model_lvl2, model_lvl3, features
 
-# ==== SHAP explainer 缓存（规避 UnhashableParamError）====
+# ==== 新的 explainer 缓存实现：用“签名 + 下划线参数”避免对模型对象做哈希 ====
 @st.cache_resource
 def _make_explainer_cached(sig: str, _model):
     """缓存 SHAP explainer；sig 作为缓存键，_model 不参与哈希。"""
@@ -80,7 +82,9 @@ def _model_signature(model) -> str:
     return f"{model.__class__.__name__}|{hash(params_tup)}|{hash(classes)}"
 
 def preprocess_uploaded_data(df):
-    """数据预处理：兼容 FeOT 缺失的拆分；派生特征生成（与你原逻辑一致）。"""
+    """
+    数据预处理：兼容 FeOT 缺失的拆分，派生特征生成（与你原逻辑一致）。
+    """
     MW = {'TiO2':79.866,'Al2O3':101.961,'Cr2O3':151.99,'FeO':71.844,'MnO':70.937,'MgO':40.304,'ZnO':81.38,'SiO2':60.0843,'V2O3':149.88}
     O_num = {'TiO2':2,'Al2O3':3,'Cr2O3':3,'FeO':1,'MnO':1,'MgO':1,'ZnO':1,'SiO2':2,'V2O3':3}
     Cat_num={'TiO2':1,'Al2O3':2,'Cr2O3':2,'FeO':1,'MnO':1,'MgO':1,'ZnO':1,'SiO2':1,'V2O3':2}
@@ -92,31 +96,46 @@ def preprocess_uploaded_data(df):
 
     df = df.copy()
 
-    if "FeO" in df.columns and "Fe2O3" in df.columns:
+    use_manual_fe = "FeO" in df.columns and "Fe2O3" in df.columns
+    if use_manual_fe:
+        # 若已给出 FeO/Fe2O3，直接重命名并计算总 FeO
         df = df.rename(columns={"FeO": "FeOre", "Fe2O3": "Fe2O3re"})
         df["FeO_total"] = df["FeOre"] + df["Fe2O3re"] * 0.8998
     else:
+        # 若只有 FeOT，则按尖晶石配位假设拆分 Fe2+/Fe3+
         def fe_split_spinel(row, O_basis=32):
             val_feot = row.get('FeOT', np.nan)
             val_feot = 0.0 if pd.isna(val_feot) else float(val_feot)
+
             moles = {ox: row[ox]/MW[ox] for ox in MW if ox != 'FeO'}
             moles['FeO'] = val_feot / MW['FeO']
+
             O_total = sum(moles[ox] * O_num[ox] for ox in moles)
             fac = O_basis / O_total if O_total > 0 else 0.0
+
             cations = {ox: moles[ox] * Cat_num[ox] * fac for ox in moles}
-            S = sum(cations.values()); T = 24.0
+            S = sum(cations.values())
+            T = 24.0
+
             Fe_total_apfu = cations['FeO']
             Fe3_apfu = max(0.0, 2 * O_basis * (1 - T / S)) if S > 0 else 0.0
-            Fe3_apfu = min(Fe3_apfu, Fe_total_apfu); Fe2_apfu = Fe_total_apfu - Fe3_apfu
+            Fe3_apfu = min(Fe3_apfu, Fe_total_apfu)
+            Fe2_apfu = Fe_total_apfu - Fe3_apfu
+
             Fe2_frac = Fe2_apfu / Fe_total_apfu if Fe_total_apfu > 0 else 0.0
             Fe3_frac = Fe3_apfu / Fe_total_apfu if Fe_total_apfu > 0 else 0.0
+
             FeO_wt   = Fe2_frac * val_feot
             Fe2O3_wt = Fe3_frac * val_feot * FE2O3_OVER_FEO_FE_EQ
+
             return pd.Series({
-                'FeOre': FeO_wt, 'Fe2O3re': Fe2O3_wt,
-                'Fe2_frac': Fe2_frac, 'Fe3_frac': Fe3_frac,
+                'FeOre': FeO_wt,
+                'Fe2O3re': Fe2O3_wt,
+                'Fe2_frac': Fe2_frac,
+                'Fe3_frac': Fe3_frac,
                 'FeO_total': FeO_wt + Fe2O3_wt * 0.8998
             })
+
         df = df.join(df.apply(fe_split_spinel, axis=1))
 
     mol_wt = {'Cr2O3':151.99,'Al2O3':101.961,'MgO':40.304,'FeO':71.844,'Fe2O3':159.688}
@@ -126,6 +145,7 @@ def preprocess_uploaded_data(df):
     Fe2_mol = df["FeOre"] / mol_wt["FeO"]
     Fe3_mol = df["Fe2O3re"] / mol_wt["Fe2O3"] * 2
 
+    # 派生特征（与你原版一致）
     df["Cr_CrplusAl"] = Cr_mol / (Cr_mol + Al_mol)
     df["Mg_MgplusFe"] = Mg_mol / (Mg_mol + Fe2_mol)
     df["FeCrAlFe"]   = Fe3_mol / (Fe3_mol + Cr_mol + Al_mol)
@@ -136,37 +156,39 @@ def to_numeric_df(df):
     """尽量把所有列转 float，无法转换则置 NaN。"""
     return df.apply(pd.to_numeric, errors="coerce")
 
-# 组结果汇总：返回 level/label/prob/一致性占比
-def summarize_group(pred_l3, p3max, pred_l2, p2max, pred_l1, p1max):
-    """优先 L3→L2→L1，排除 Unknown/NaN，取众数；概率为该类的平均最大概率。"""
-    def _pick(labels, maxp):
-        s = pd.Series(labels, dtype="object")
-        m = s.notna() & (s != "") & (s != ABSTAIN_LABEL)
-        if not m.any():
-            return None
-        vals = s[m]
-        counts = vals.value_counts()
-        top = counts[counts == counts.max()].index.tolist()
-        if len(top) == 1:
-            best = top[0]
-        else:
-            # 平手时：选平均置信度更高的
-            best = max(top, key=lambda lab: np.nanmean(maxp[(s == lab).to_numpy()]))
-        conf = float(np.nanmean(maxp[(s == best).to_numpy()]))
-        agree = int((s == best).sum()); valid = int(m.sum())
-        return best, conf, agree, valid
+# 组结果汇总（按占比最大，概率取该类的平均最大概率）
+def summarize_group_majority(labels, maxp):
+    """
+    labels: 一组样本在某一级别的预测标签（如 Level3 的 pred3_label）
+    maxp:   对应每行该级别预测的“被选中类别”的概率（一般是每行的 max proba / 阈值后的那一列）
 
-    for level_name, labels, maxp in [
-        ("Level3", pred_l3, p3max),
-        ("Level2", pred_l2, p2max),
-        ("Level1", pred_l1, p1max),
-    ]:
-        picked = _pick(labels, maxp)
-        if picked is not None:
-            lab, prob, agree, valid = picked
-            frac = agree / max(valid, 1)
-            return {"level": level_name, "label": lab, "prob": prob, "agree": agree, "valid": valid, "fraction": frac}
-    return None
+    规则：
+      - 过滤掉空串/NaN/Unknown
+      - 统计各类别占比，取占比最高的类别作为最终结果
+      - 占比并列时，用该类别的平均概率更高者
+      - 返回 {label, prob, agree, total}
+    """
+    s = pd.Series(labels, dtype="object")
+    valid_mask = s.notna() & (s != "") & (s != ABSTAIN_LABEL)
+    if not valid_mask.any():
+        return None
+
+    s_valid = s[valid_mask]
+    p_valid = pd.Series(maxp, dtype="float64")[valid_mask]
+
+    counts = s_valid.value_counts()
+    top = counts[counts == counts.max()].index.tolist()
+
+    # 并列时按平均概率挑更高的
+    means = {c: float(p_valid[s_valid == c].mean()) for c in top}
+    best = max(top, key=lambda c: means[c])
+
+    return {
+        "label": best,
+        "prob": means[best],                 # 该类的平均概率
+        "agree": int((s_valid == best).sum()),
+        "total": int(valid_mask.sum()),
+    }
 
 # -------------------- 加载模型 & 特征（侧边栏） --------------------
 with st.sidebar:
@@ -179,7 +201,7 @@ with st.sidebar:
         st.error("Failed to load models or feature columns.")
         st.exception(e)
 
-# -------------------- 上传文件并处理 --------------------
+# -------------------- 上传文件并处理（UI 英文） --------------------
 uploaded_file = st.file_uploader("Upload an Excel or CSV file (must include all feature columns).", type=["xlsx", "csv"])
 
 if uploaded_file is not None:
@@ -189,16 +211,18 @@ if uploaded_file is not None:
         else:
             df_uploaded = pd.read_excel(uploaded_file)
 
+        # 预处理（含 Fe 拆分 & 派生特征）
         df_uploaded = preprocess_uploaded_data(df_uploaded)
 
-        # 对齐特征列
+        # 对齐特征列（缺失补 NaN，按训练列顺序取）
         df_input = df_uploaded.copy()
         for col in feature_list:
             if col not in df_input.columns:
                 df_input[col] = np.nan
-        df_input = to_numeric_df(df_input[feature_list])
+        df_input = df_input[feature_list]
+        df_input = to_numeric_df(df_input)
 
-        # -------------------- 三级推理 --------------------
+        # -------------------- 三级推理（与训练口径一致） --------------------
         # Level1（不启用 Unknown）
         prob1 = model_lvl1.predict_proba(df_input)
         classes1 = model_lvl1.classes_.astype(str)
@@ -208,7 +232,8 @@ if uploaded_file is not None:
 
         # Level2（仅 L1=Extraterrestrial；阈值放行 -> Unknown）
         _pred1_norm = (
-            pd.Series(pred1_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
+            pd.Series(pred1_label, dtype="object")
+              .astype("string").str.strip().str.lower().fillna("")
         )
         mask_lvl2 = (_pred1_norm == "extraterrestrial").to_numpy()
 
@@ -224,9 +249,10 @@ if uploaded_file is not None:
             pred2_label[mask_lvl2] = pred2_masked
             p2max[mask_lvl2] = p2max_masked
 
-        # Level3（父子约束 + 阈值放行）
+        # Level3（由预测到的二级路由 + 父子约束 + 阈值放行）
         _pred2_norm = (
-            pd.Series(pred2_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
+            pd.Series(pred2_label, dtype="object")
+              .astype("string").str.strip().str.lower().fillna("")
         )
         mask_lvl3 = _pred2_norm.isin(["oc", "cc"]).to_numpy()
 
@@ -240,7 +266,7 @@ if uploaded_file is not None:
             idxs = np.where(mask_lvl3)[0]
             for row_i, i_global in enumerate(idxs):
                 parent = str(pred2_label[i_global])          # "OC" 或 "CC"
-                allowed = valid_lvl3.get(parent, set())
+                allowed = valid_lvl3.get(parent, set())      # 允许的三级集合
                 p = all_proba3[row_i].copy()
                 if allowed:
                     mask_allowed = np.isin(classes3, list(allowed))
@@ -253,7 +279,7 @@ if uploaded_file is not None:
                 p3max[i_global] = pmax
             prob3[mask_lvl3] = all_proba3
 
-        # -------------------- 展示结果表 --------------------
+        # -------------------- 展示结果（列名英文） --------------------
         df_display = df_uploaded.copy().reset_index(drop=True)
         df_display.insert(0, "Index", df_display.index + 1)
         df_display.insert(1, "Level1_Pred", pred1_label)
@@ -270,44 +296,66 @@ if uploaded_file is not None:
         st.subheader("🧾 Predictions")
         st.dataframe(df_display)
 
-        # -------------------- SHAP 可解释性 --------------------
+        # -------------------- SHAP 可解释性（UI 英文、注释中文） --------------------
         st.subheader("📈 SHAP Interpretability")
         cols = st.columns(3)
         for col, (model, name) in zip(cols, [(model_lvl1, "Level1"), (model_lvl2, "Level2"), (model_lvl3, "Level3")]):
             with col:
                 st.markdown(f"#### 🔍 {name} Model")
+                # 使用新的缓存接口（签名 + 下划线参数）避免对模型对象哈希
                 explainer = _make_explainer_cached(_model_signature(model), _model=model)
                 shap_values = explainer.shap_values(df_input)
+
+                # 条形图：当前上传批次的全局重要性（平均 |SHAP|）
                 shap.summary_plot(shap_values, df_input, plot_type="bar", show=False)
                 st.pyplot(plt.gcf()); plt.close()
+
+                # 点云图：当前上传批次的 SHAP 分布
                 shap.summary_plot(shap_values, df_input, show=False)
                 st.pyplot(plt.gcf()); plt.close()
 
-        # -------------------- ✅ 新增板块：样品一致性确认 + 组结果 --------------------
+        # -------------------- ✅ 新增板块：样品一致性确认 + 组结果（多数票+均值概率） --------------------
         st.subheader("🧪 Specimen Confirmation & Group Result")
         same_specimen = st.checkbox("I confirm all uploaded rows originate from the same physical specimen.")
         if same_specimen:
-            summary = summarize_group(pred3_label, p3max, pred2_label, p2max, pred1_label, p1max)
+            # 先用 Level3；若无有效结果，再回退 Level2，再回退 Level1
+            summary = (
+                summarize_group_majority(pred3_label, p3max)
+                or summarize_group_majority(pred2_label, p2max)
+                or summarize_group_majority(pred1_label, p1max)
+            )
             if summary:
-                lvl, lab, prob = summary["level"], summary["label"], summary["prob"]
-                agree, valid, frac = summary["agree"], summary["valid"], summary["fraction"]
-                st.success(f"Final group result → **{lvl}: {lab}**  |  Probability (mean max): **{prob:.3f}**  |  Agreement: **{agree}/{valid} ({frac:.0%})**")
+                lab = summary["label"]; prob = summary["prob"]
+                agree = summary["agree"]; total = summary["total"]
+                frac = agree / max(total, 1)
+                st.success(
+                    f"Final group result → **{lab}**  |  "
+                    f"Probability (mean of this class across rows): **{prob:.3f}**  |  "
+                    f"Share: **{agree}/{total} ({frac:.0%})**"
+                )
                 if frac < 0.7:
-                    st.warning("Low internal consistency detected across rows (<70%). Please verify the sample grouping or check data quality.")
+                    st.warning("Low internal consistency across rows (<70%). Please verify the sample grouping or data quality.")
             else:
                 st.info("No valid predictions available to summarize this group.")
 
-        # -------------------- 训练池 & GitHub 同步 --------------------
+        # -------------------- 训练池 & GitHub 同步（UI 英文） --------------------
         st.subheader("🧩 Add Predictions to Training Pool?")
         if st.checkbox("✅ Confirm to append these samples to the training pool for future retraining"):
             df_save = df_input.copy()
             df_save["Level1"] = pred1_label
             df_save["Level2"] = pred2_label
             df_save["Level3"] = pred3_label
-            local_path = save_training_pool(df_save)
+            # 可选：将组结果也追加到保存表（如需可解注释）
+            # if same_specimen and summary:
+            #     df_save["Group_Label"] = summary["label"]
+            #     df_save["Group_Prob"] = summary["prob"]
+            local_path = "training_pool.csv"
+            header_needed = not os.path.exists(local_path)
+            df_save.to_csv(local_path, mode="a", header=header_needed, index=False, encoding="utf-8-sig")
             st.success("✅ Samples appended to local training pool.")
 
             try:
+                # 兼容两种 secrets 写法：gh_token 或 github.token
                 GITHUB_TOKEN = (
                     st.secrets.get("gh_token")
                     or (st.secrets.get("github", {}) or {}).get("token")
@@ -320,15 +368,24 @@ if uploaded_file is not None:
                 if not GITHUB_TOKEN:
                     st.info("GitHub token not configured (gh_token or github.token). Saved locally only.")
                 else:
-                    status, resp = push_to_github_local_file(local_path, repo_owner, repo_name, GITHUB_TOKEN, dst_path, branch)
-                    if 200 <= status < 300:
+                    # 推送到 GitHub（若需覆盖旧文件会自动用 sha）
+                    with open(local_path, "rb") as f:
+                        content_b64 = base64.b64encode(f.read()).decode("utf-8")
+                    url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{dst_path}"
+                    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+                    r = requests.get(url, headers=headers)
+                    sha = r.json().get("sha") if r.status_code == 200 else None
+                    payload = {"message": "update training pool", "content": content_b64, "branch": branch}
+                    if sha: payload["sha"] = sha
+                    put_resp = requests.put(url, headers=headers, json=payload)
+                    if 200 <= put_resp.status_code < 300:
                         st.success("✅ Synced to GitHub repository.")
                     else:
-                        st.warning(f"⚠️ GitHub sync failed ({status}): {resp[:300]}")
+                        st.warning(f"⚠️ GitHub sync failed ({put_resp.status_code}): {put_resp.text[:300]}")
             except Exception as e:
                 st.error(f"❌ GitHub sync error: {e}")
 
-        # -------------------- 结果下载 --------------------
+        # -------------------- 结果下载（UI 英文） --------------------
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_display.to_excel(writer, index=False, sheet_name='Prediction')
