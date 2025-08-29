@@ -3,11 +3,12 @@ TiO2
 MgO
 V2O3
 MnO
-Cr_CrplusAl
+Cr#
 Al2O3
-FeCrAlFe
+Fe*
 Cr2O3
-FeMgFe
-Mg_MgplusFe
+Fe#
+Mg#
 FeO
 FeOT
+
