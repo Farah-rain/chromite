@@ -1,12 +1,3 @@
-# app.py
-# ==================== 说明 ====================
-# 界面/文案全部英文；注释全部中文，便于你阅读维护。
-# 已包含修复/特性：
-# 1) 用 pandas 字符串管道替代 np.char.*（避免 UFUNCTypeError）
-# 2) Level2/Level3 启用阈值 + Unknown；Level3 父子约束
-# 3) SHAP explainer 使用“签名 + 下划线参数”缓存（规避 UnhashableParamError）
-# 4) 新增“样品一致性确认 + 组结果”板块：按“占比最大”为最终类别，概率取该类在组内的平均概率；优先 L3→L2→L1
-# =================================================
 
 import streamlit as st
 import pandas as pd
@@ -156,39 +147,35 @@ def to_numeric_df(df):
     """尽量把所有列转 float，无法转换则置 NaN。"""
     return df.apply(pd.to_numeric, errors="coerce")
 
-# 组结果汇总（按占比最大，概率取该类的平均最大概率）
-def summarize_group_majority(labels, maxp):
+# ========= 组结果：单层多数票 + 平均概率 =========
+def summarize_level_top_share(labels, maxp):
     """
-    labels: 一组样本在某一级别的预测标签（如 Level3 的 pred3_label）
-    maxp:   对应每行该级别预测的“被选中类别”的概率（一般是每行的 max proba / 阈值后的那一列）
+    labels: 该层每行的预测（如 Level3 的 pred3_label）
+    maxp:   该层每行“被判定类别”的概率（阈值/约束后的那一列；未参与该层的行可为 NaN）
 
-    规则：
-      - 过滤掉空串/NaN/Unknown
-      - 统计各类别占比，取占比最高的类别作为最终结果
-      - 占比并列时，用该类别的平均概率更高者
-      - 返回 {label, prob, agree, total}
+    返回:
+      None  -> 没有有效标签（全 Unknown/NaN/空）
+      dict  -> {"label","agree","total","share","prob"}
+               prob = 仅在该类别的那些行上的平均概率
     """
     s = pd.Series(labels, dtype="object")
-    valid_mask = s.notna() & (s != "") & (s != ABSTAIN_LABEL)
-    if not valid_mask.any():
+    m = s.notna() & (s != "") & (s != ABSTAIN_LABEL)
+    total = int(m.sum())
+    if total == 0:
         return None
 
-    s_valid = s[valid_mask]
-    p_valid = pd.Series(maxp, dtype="float64")[valid_mask]
+    s_valid = s[m]
+    p_valid = pd.Series(maxp, dtype="float64")[m]
 
     counts = s_valid.value_counts()
-    top = counts[counts == counts.max()].index.tolist()
+    max_count = counts.max()
+    candidates = counts[counts == max_count].index.tolist()
 
-    # 并列时按平均概率挑更高的
-    means = {c: float(p_valid[s_valid == c].mean()) for c in top}
-    best = max(top, key=lambda c: means[c])
+    means = {c: float(p_valid[s_valid == c].mean()) for c in candidates}
+    best = max(candidates, key=lambda c: means[c])
 
-    return {
-        "label": best,
-        "prob": means[best],                 # 该类的平均概率
-        "agree": int((s_valid == best).sum()),
-        "total": int(valid_mask.sum()),
-    }
+    return {"label": best, "agree": int(max_count), "total": total,
+            "share": max_count/total, "prob": means[best]}
 
 # -------------------- 加载模型 & 特征（侧边栏） --------------------
 with st.sidebar:
@@ -219,8 +206,7 @@ if uploaded_file is not None:
         for col in feature_list:
             if col not in df_input.columns:
                 df_input[col] = np.nan
-        df_input = df_input[feature_list]
-        df_input = to_numeric_df(df_input)
+        df_input = to_numeric_df(df_input[feature_list])
 
         # -------------------- 三级推理（与训练口径一致） --------------------
         # Level1（不启用 Unknown）
@@ -228,18 +214,17 @@ if uploaded_file is not None:
         classes1 = model_lvl1.classes_.astype(str)
         pred1_idx = np.argmax(prob1, axis=1)
         pred1_label = classes1[pred1_idx]
-        p1max = prob1[np.arange(len(df_input)), pred1_idx]  # 记录 L1 最大概率
+        p1max = prob1[np.arange(len(df_input)), pred1_idx]  # L1 最大概率
 
         # Level2（仅 L1=Extraterrestrial；阈值放行 -> Unknown）
         _pred1_norm = (
-            pd.Series(pred1_label, dtype="object")
-              .astype("string").str.strip().str.lower().fillna("")
+            pd.Series(pred1_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
         )
         mask_lvl2 = (_pred1_norm == "extraterrestrial").to_numpy()
 
         prob2 = np.full((len(df_input), len(model_lvl2.classes_)), np.nan)
         pred2_label = np.full(len(df_input), "", dtype=object)
-        p2max = np.full(len(df_input), np.nan)  # 记录 L2 最大概率
+        p2max = np.full(len(df_input), np.nan)
 
         if mask_lvl2.any():
             prob2_masked = model_lvl2.predict_proba(df_input[mask_lvl2])
@@ -249,16 +234,15 @@ if uploaded_file is not None:
             pred2_label[mask_lvl2] = pred2_masked
             p2max[mask_lvl2] = p2max_masked
 
-        # Level3（由预测到的二级路由 + 父子约束 + 阈值放行）
+        # Level3（父子约束 + 阈值放行）
         _pred2_norm = (
-            pd.Series(pred2_label, dtype="object")
-              .astype("string").str.strip().str.lower().fillna("")
+            pd.Series(pred2_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
         )
         mask_lvl3 = _pred2_norm.isin(["oc", "cc"]).to_numpy()
 
         prob3 = np.full((len(df_input), len(model_lvl3.classes_)), np.nan)
         pred3_label = np.full(len(df_input), "", dtype=object)
-        p3max = np.full(len(df_input), np.nan)  # 记录 L3 最大概率（约束后）
+        p3max = np.full(len(df_input), np.nan)
 
         if mask_lvl3.any():
             all_proba3 = model_lvl3.predict_proba(df_input[mask_lvl3])
@@ -266,7 +250,7 @@ if uploaded_file is not None:
             idxs = np.where(mask_lvl3)[0]
             for row_i, i_global in enumerate(idxs):
                 parent = str(pred2_label[i_global])          # "OC" 或 "CC"
-                allowed = valid_lvl3.get(parent, set())      # 允许的三级集合
+                allowed = valid_lvl3.get(parent, set())
                 p = all_proba3[row_i].copy()
                 if allowed:
                     mask_allowed = np.isin(classes3, list(allowed))
@@ -296,66 +280,76 @@ if uploaded_file is not None:
         st.subheader("🧾 Predictions")
         st.dataframe(df_display)
 
-        # -------------------- SHAP 可解释性（UI 英文、注释中文） --------------------
+        # -------------------- SHAP 可解释性 --------------------
         st.subheader("📈 SHAP Interpretability")
         cols = st.columns(3)
         for col, (model, name) in zip(cols, [(model_lvl1, "Level1"), (model_lvl2, "Level2"), (model_lvl3, "Level3")]):
             with col:
                 st.markdown(f"#### 🔍 {name} Model")
-                # 使用新的缓存接口（签名 + 下划线参数）避免对模型对象哈希
                 explainer = _make_explainer_cached(_model_signature(model), _model=model)
                 shap_values = explainer.shap_values(df_input)
-
-                # 条形图：当前上传批次的全局重要性（平均 |SHAP|）
                 shap.summary_plot(shap_values, df_input, plot_type="bar", show=False)
                 st.pyplot(plt.gcf()); plt.close()
-
-                # 点云图：当前上传批次的 SHAP 分布
                 shap.summary_plot(shap_values, df_input, show=False)
                 st.pyplot(plt.gcf()); plt.close()
 
-        # -------------------- ✅ 新增板块：样品一致性确认 + 组结果（多数票+均值概率） --------------------
+        # -------------------- ✅ 新板块：样品一致性确认 + 组结果（三级都比较） --------------------
         st.subheader("🧪 Specimen Confirmation & Group Result")
         same_specimen = st.checkbox("I confirm all uploaded rows originate from the same physical specimen.")
         if same_specimen:
-            # 先用 Level3；若无有效结果，再回退 Level2，再回退 Level1
-            summary = (
-                summarize_group_majority(pred3_label, p3max)
-                or summarize_group_majority(pred2_label, p2max)
-                or summarize_group_majority(pred1_label, p1max)
-            )
-            if summary:
-                lab = summary["label"]; prob = summary["prob"]
-                agree = summary["agree"]; total = summary["total"]
-                frac = agree / max(total, 1)
+            # 分别计算 Level1/2/3 的多数票+平均概率
+            sum_L1 = summarize_level_top_share(pred1_label, p1max)
+            sum_L2 = summarize_level_top_share(pred2_label, p2max)
+            sum_L3 = summarize_level_top_share(pred3_label, p3max)
+
+            cands = []
+            if sum_L1: cands.append(("Level1", sum_L1))
+            if sum_L2: cands.append(("Level2", sum_L2))
+            if sum_L3: cands.append(("Level3", sum_L3))
+
+            if cands:
+                # 先比占比 share，再比平均概率 prob，最后偏向更细层级 L3>L2>L1
+                depth = {"Level1": 1, "Level2": 2, "Level3": 3}
+                final_level, final = sorted(
+                    cands,
+                    key=lambda t: (t[1]["share"], t[1]["prob"], depth[t[0]]),
+                    reverse=True
+                )[0]
+
                 st.success(
-                    f"Final group result → **{lab}**  |  "
-                    f"Probability (mean of this class across rows): **{prob:.3f}**  |  "
-                    f"Share: **{agree}/{total} ({frac:.0%})**"
+                    f"Final group result → **{final_level}: {final['label']}**  |  "
+                    f"Probability (mean for this class): **{final['prob']:.3f}**  |  "
+                    f"Share: **{final['agree']}/{final['total']} ({final['share']:.0%})**"
                 )
-                if frac < 0.7:
-                    st.warning("Low internal consistency across rows (<70%). Please verify the sample grouping or data quality.")
+
+                # 小表：三层对比，心里更有底
+                rows = []
+                for lvl, s in [("Level1", sum_L1), ("Level2", sum_L2), ("Level3", sum_L3)]:
+                    if s:
+                        rows.append({
+                            "Level": lvl,
+                            "Top class": s["label"],
+                            "Share": f"{s['agree']}/{s['total']} ({s['share']:.0%})",
+                            "Mean prob": round(s["prob"], 3),
+                        })
+                if rows:
+                    st.dataframe(pd.DataFrame(rows))
             else:
                 st.info("No valid predictions available to summarize this group.")
 
-        # -------------------- 训练池 & GitHub 同步（UI 英文） --------------------
+        # -------------------- 训练池 & GitHub 同步 --------------------
         st.subheader("🧩 Add Predictions to Training Pool?")
         if st.checkbox("✅ Confirm to append these samples to the training pool for future retraining"):
             df_save = df_input.copy()
             df_save["Level1"] = pred1_label
             df_save["Level2"] = pred2_label
             df_save["Level3"] = pred3_label
-            # 可选：将组结果也追加到保存表（如需可解注释）
-            # if same_specimen and summary:
-            #     df_save["Group_Label"] = summary["label"]
-            #     df_save["Group_Prob"] = summary["prob"]
             local_path = "training_pool.csv"
             header_needed = not os.path.exists(local_path)
             df_save.to_csv(local_path, mode="a", header=header_needed, index=False, encoding="utf-8-sig")
             st.success("✅ Samples appended to local training pool.")
 
             try:
-                # 兼容两种 secrets 写法：gh_token 或 github.token
                 GITHUB_TOKEN = (
                     st.secrets.get("gh_token")
                     or (st.secrets.get("github", {}) or {}).get("token")
@@ -368,7 +362,6 @@ if uploaded_file is not None:
                 if not GITHUB_TOKEN:
                     st.info("GitHub token not configured (gh_token or github.token). Saved locally only.")
                 else:
-                    # 推送到 GitHub（若需覆盖旧文件会自动用 sha）
                     with open(local_path, "rb") as f:
                         content_b64 = base64.b64encode(f.read()).decode("utf-8")
                     url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{dst_path}"
@@ -385,7 +378,7 @@ if uploaded_file is not None:
             except Exception as e:
                 st.error(f"❌ GitHub sync error: {e}")
 
-        # -------------------- 结果下载（UI 英文） --------------------
+        # -------------------- 结果下载 --------------------
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_display.to_excel(writer, index=False, sheet_name='Prediction')
