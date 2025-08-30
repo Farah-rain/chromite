@@ -314,32 +314,29 @@ if uploaded_file is not None:
        
 # -------------------- 📈 SHAP Interpretability --------------------
 
+        # -------------------- 📈 SHAP Interpretability --------------------
         st.subheader("📈 SHAP Interpretability")
 
-        TOP_K = 13  # 你要显示 13 个特征
+        TOP_K = 13  # 条形图展示的特征数
 
         def _safe_class_names(m):
-            """取真实类别名并转成字符串"""
             try:
                 return [str(x) for x in list(getattr(m, "classes_", []))]
             except Exception:
                 return []
 
         def _bar_per_class(shap_vals_1class, X, title, top_k=TOP_K):
-            """
-            自画条形图：按 mean(|SHAP|) 取前 top_k 个特征。
-            强制把均值压成 1D，避免形状问题。
-            """
-            mean_abs = np.mean(np.abs(shap_vals_1class), axis=0)      # 期望 (F,)
-            mean_abs = np.array(mean_abs).reshape(-1)                  # ☆ 强制 1D
+            # mean(|SHAP|) -> 1D，防止形状问题
+            mean_abs = np.mean(np.abs(shap_vals_1class), axis=0)
+            mean_abs = np.array(mean_abs).reshape(-1)
             order = np.argsort(mean_abs)
             k = min(top_k, len(order))
             sel = order[-k:]
             feats = np.array(X.columns)[sel]
-            vals  = mean_abs[sel]                                      # 形状 (k,)
+            vals  = mean_abs[sel]
 
             fig, ax = plt.subplots(figsize=(7, max(3, 0.28*len(sel)+2)))
-            ax.barh(np.arange(len(vals)), vals)                        # y:(k,), width:(k,)
+            ax.barh(np.arange(len(vals)), vals)
             ax.set_yticks(np.arange(len(vals)))
             ax.set_yticklabels(feats)
             ax.set_xlabel("mean |SHAP|")
@@ -350,37 +347,69 @@ if uploaded_file is not None:
 
         def _sv_to_list_per_class(sv, X, class_names):
             """
-            把 shap_values 规整成“每类一个 (N,F) 矩阵”的 list：
-            - list[n_classes] -> 原样返回
-            - (N,F)           -> 二分类：返回 [ -sv, sv ]
-            - (C,N,F)         -> 拆成 [sv[c,:,:] for c in C]
-            - (N,F,C)         -> 拆成 [sv[:,:,c] for c in C]
-            - (N,C,F)         -> 拆成 [sv[:,c,:] for c in C]
-            """
-            N, F = X.shape[0], X.shape[1]
+            统一把 shap_values 转成：list[ n_classes ]，每项形状 (N,F)。
 
+            兼容：
+            - list[n_classes]                     -> 原样转 (N,F)
+            - (N, F)                              -> 二分类: [-sv, sv]
+            - (C, N, F) / (N, F, C) / (N, C, F)   -> 正确拆分
+            - (N, F*C)                            -> 沿列拆成 C 份
+            - (N*C, F)                            -> 沿行拆成 C 份
+            """
+            N, F = X.shape
             if isinstance(sv, list):
                 return [np.asarray(a).reshape(N, F) for a in sv]
 
             arr = np.asarray(sv)
+
             if arr.ndim == 2:
-                # 二分类常见：(N,F)
-                if len(class_names) == 2:
-                    return [ -arr.reshape(N, F), arr.reshape(N, F) ]
-                else:  # 没有 classes_ 的容错
-                    return [ arr.reshape(N, F) ]
+                r, c = arr.shape
+                # (N, F) -> 可能是二分类“正类”
+                if r == N and c == F:
+                    if class_names and len(class_names) == 2:
+                        return [ -arr, arr ]
+                    else:
+                        return [ arr ]
+                # (N, F*C)
+                if r == N and c % F == 0:
+                    C = c // F
+                    return [ arr[:, i*F:(i+1)*F].reshape(N, F) for i in range(C) ]
+                # (N*C, F)
+                if c == F and r % N == 0:
+                    C = r // N
+                    return [ arr[i*N:(i+1)*N, :].reshape(N, F) for i in range(C) ]
+                # 如果知道类数且元素个数吻合，试着 reshape 三维再拆
+                if class_names:
+                    C = len(class_names)
+                    if arr.size == N*F*C:
+                        try:  # (N, F, C)
+                            tmp = arr.reshape(N, F, C)
+                            return [ tmp[:, :, i] for i in range(C) ]
+                        except Exception:
+                            pass
+                        try:  # (C, N, F)
+                            tmp = arr.reshape(C, N, F)
+                            return [ tmp[i, :, :] for i in range(C) ]
+                        except Exception:
+                            pass
+                # 兜底：尽力拉回 (N,F)（若不可整除会抛错->让我们看到问题）
+                return [ arr.reshape(N, F) ]
 
             if arr.ndim == 3:
-                C, n1, n2 = arr.shape[0], arr.shape[1], arr.shape[2]
-                # 识别轴顺序并拆分
-                if arr.shape == (N, F, C):      # (N,F,C)
-                    return [ arr[:, :, c].reshape(N, F) for c in range(C) ]
-                if arr.shape == (C, N, F):      # (C,N,F)
-                    return [ arr[c, :, :].reshape(N, F) for c in range(C) ]
-                if arr.shape == (N, C, F):      # (N,C,F)
-                    return [ arr[:, c, :].reshape(N, F) for c in range(arr.shape[1]) ]
+                # (N, F, C)
+                if arr.shape[0] == N and arr.shape[1] == F:
+                    C = arr.shape[2]
+                    return [ arr[:, :, i].reshape(N, F) for i in range(C) ]
+                # (C, N, F)
+                if arr.shape[1] == N and arr.shape[2] == F:
+                    C = arr.shape[0]
+                    return [ arr[i, :, :].reshape(N, F) for i in range(C) ]
+                # (N, C, F)
+                if arr.shape[0] == N and arr.shape[2] == F:
+                    C = arr.shape[1]
+                    return [ arr[:, i, :].reshape(N, F) for i in range(C) ]
 
-            # 兜底：拉平成 (N,F)
+            # 最终兜底
             return [ arr.reshape(N, F) ]
 
         def _render_shap_for_model(model, level_name, X):
@@ -391,17 +420,14 @@ if uploaded_file is not None:
 
             sv_list = _sv_to_list_per_class(raw_sv, X, class_names)
 
-            # 若二分类但 classes_ 缺失，兜底命名
+            # 若类名缺失或数量不匹配，做兜底
             if not class_names or len(class_names) != len(sv_list):
+                class_names = [f"class {i}" for i in range(len(sv_list))]
                 if len(sv_list) == 2:
                     class_names = ["negative", "positive"]
-                else:
-                    class_names = [f"class {i}" for i in range(len(sv_list))]
 
             for arr, cname in zip(sv_list, class_names):
-                # 条形图（Top-K）
                 _bar_per_class(arr, X, title=f"{level_name} — class: {cname}", top_k=TOP_K)
-                # beeswarm（官方函数，显示方向/分布）
                 shap.summary_plot(arr, X, show=False)
                 plt.title(f"{level_name} — SHAP beeswarm (class: {cname})")
                 st.pyplot(plt.gcf()); plt.close()
@@ -412,9 +438,6 @@ if uploaded_file is not None:
                 st.markdown(f"#### 🔍 {nm} Model")
                 _render_shap_for_model(mdl, nm, df_input)
 
-        
-
-        
        
 
         # -------------------- ✅ 样品一致性 + 组结果（根据是否存在 L3 动态展示） --------------------
