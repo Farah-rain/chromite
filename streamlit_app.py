@@ -314,29 +314,33 @@ if uploaded_file is not None:
        
 # -------------------- 📈 SHAP Interpretability --------------------
 
-# -------------------- 📈 SHAP Interpretability --------------------
-        # -------------------- 📈 SHAP Interpretability --------------------
         st.subheader("📈 SHAP Interpretability")
 
-        def _safe_class_names(m):   # 取真实类别名并转成字符串
+        TOP_K = 13  # 你要显示 13 个特征
+
+        def _safe_class_names(m):
+            """取真实类别名并转成字符串"""
             try:
                 return [str(x) for x in list(getattr(m, "classes_", []))]
             except Exception:
                 return []
 
-        def _bar_per_class(shap_vals_1class, X, title, top_k=15):
+        def _bar_per_class(shap_vals_1class, X, title, top_k=TOP_K):
             """
-            自己画条形图：按该“类别”的 mean(|SHAP|) 取前 top_k 个特征。
-            这样完全避免 shap 内置 legend 里出现 class1/2/3。
+            自画条形图：按 mean(|SHAP|) 取前 top_k 个特征。
+            强制把均值压成 1D，避免形状问题。
             """
-            mean_abs = np.mean(np.abs(shap_vals_1class), axis=0)
-            order = np.argsort(mean_abs)[-top_k:]                # 取 Top-K
-            feats = X.columns.values[order]
-            vals  = mean_abs[order]
+            mean_abs = np.mean(np.abs(shap_vals_1class), axis=0)      # 期望 (F,)
+            mean_abs = np.array(mean_abs).reshape(-1)                  # ☆ 强制 1D
+            order = np.argsort(mean_abs)
+            k = min(top_k, len(order))
+            sel = order[-k:]
+            feats = np.array(X.columns)[sel]
+            vals  = mean_abs[sel]                                      # 形状 (k,)
 
-            fig, ax = plt.subplots(figsize=(6, 3 + 0.2*len(order)))
-            ax.barh(range(len(vals)), vals)
-            ax.set_yticks(range(len(vals)))
+            fig, ax = plt.subplots(figsize=(7, max(3, 0.28*len(sel)+2)))
+            ax.barh(np.arange(len(vals)), vals)                        # y:(k,), width:(k,)
+            ax.set_yticks(np.arange(len(vals)))
             ax.set_yticklabels(feats)
             ax.set_xlabel("mean |SHAP|")
             ax.set_title(title)
@@ -344,47 +348,71 @@ if uploaded_file is not None:
             st.pyplot(fig)
             plt.close(fig)
 
+        def _sv_to_list_per_class(sv, X, class_names):
+            """
+            把 shap_values 规整成“每类一个 (N,F) 矩阵”的 list：
+            - list[n_classes] -> 原样返回
+            - (N,F)           -> 二分类：返回 [ -sv, sv ]
+            - (C,N,F)         -> 拆成 [sv[c,:,:] for c in C]
+            - (N,F,C)         -> 拆成 [sv[:,:,c] for c in C]
+            - (N,C,F)         -> 拆成 [sv[:,c,:] for c in C]
+            """
+            N, F = X.shape[0], X.shape[1]
+
+            if isinstance(sv, list):
+                return [np.asarray(a).reshape(N, F) for a in sv]
+
+            arr = np.asarray(sv)
+            if arr.ndim == 2:
+                # 二分类常见：(N,F)
+                if len(class_names) == 2:
+                    return [ -arr.reshape(N, F), arr.reshape(N, F) ]
+                else:  # 没有 classes_ 的容错
+                    return [ arr.reshape(N, F) ]
+
+            if arr.ndim == 3:
+                C, n1, n2 = arr.shape[0], arr.shape[1], arr.shape[2]
+                # 识别轴顺序并拆分
+                if arr.shape == (N, F, C):      # (N,F,C)
+                    return [ arr[:, :, c].reshape(N, F) for c in range(C) ]
+                if arr.shape == (C, N, F):      # (C,N,F)
+                    return [ arr[c, :, :].reshape(N, F) for c in range(C) ]
+                if arr.shape == (N, C, F):      # (N,C,F)
+                    return [ arr[:, c, :].reshape(N, F) for c in range(arr.shape[1]) ]
+
+            # 兜底：拉平成 (N,F)
+            return [ arr.reshape(N, F) ]
+
         def _render_shap_for_model(model, level_name, X):
-            """
-            兼容多分类(list) / 二分类(ndarray)：
-            - 多分类：每个“真实类别名”各画一张条形图 + 各画一张蜂群图；
-            - 二分类：把 shap ndarray 拆成“负类= -sv、正类= sv”，同样各画一张。
-            """
+            """稳健渲染：每类一张条形图(Top-K) + 每类一张 beeswarm，标题用真实类别名。"""
             explainer = _make_explainer_cached(_model_signature(model), _model=model)
-            sv = explainer.shap_values(X)
+            raw_sv = explainer.shap_values(X)
             class_names = _safe_class_names(model)
 
-            # 多分类：sv 是 list[n_classes]
-            if isinstance(sv, list):
-                # 逐类画：条形图 + 蜂群图（标题写真实类别名）
-                for i, cname in enumerate(class_names or [f"class {i}" for i in range(len(sv))]):
-                    _bar_per_class(sv[i], X, title=f"{level_name} — class: {cname}")
-                    shap.summary_plot(sv[i], X, show=False)
-                    plt.title(f"{level_name} — SHAP beeswarm (class: {cname})")
-                    st.pyplot(plt.gcf()); plt.close()
+            sv_list = _sv_to_list_per_class(raw_sv, X, class_names)
 
-            else:
-                # 二分类常返回单个 ndarray（正类的 SHAP）
-                # 我们手工构造两个类别的视图：负类 = -sv，正类 = sv
-                if len(class_names) == 2:
-                    sv_list  = [ -sv, sv ]
-                    names    = [ class_names[0], class_names[1] ]
+            # 若二分类但 classes_ 缺失，兜底命名
+            if not class_names or len(class_names) != len(sv_list):
+                if len(sv_list) == 2:
+                    class_names = ["negative", "positive"]
                 else:
-                    # 极少数情况下拿不到 classes_；至少保证正类能画
-                    sv_list  = [ sv ]
-                    names    = [ class_names[-1] if class_names else "positive" ]
+                    class_names = [f"class {i}" for i in range(len(sv_list))]
 
-                for arr, cname in zip(sv_list, names):
-                    _bar_per_class(arr, X, title=f"{level_name} — class: {cname}")
-                    shap.summary_plot(arr, X, show=False)
-                    plt.title(f"{level_name} — SHAP beeswarm (class: {cname})")
-                    st.pyplot(plt.gcf()); plt.close()
+            for arr, cname in zip(sv_list, class_names):
+                # 条形图（Top-K）
+                _bar_per_class(arr, X, title=f"{level_name} — class: {cname}", top_k=TOP_K)
+                # beeswarm（官方函数，显示方向/分布）
+                shap.summary_plot(arr, X, show=False)
+                plt.title(f"{level_name} — SHAP beeswarm (class: {cname})")
+                st.pyplot(plt.gcf()); plt.close()
 
         cols = st.columns(3)
         for col, (mdl, nm) in zip(cols, [(model_lvl1, "Level1"), (model_lvl2, "Level2"), (model_lvl3, "Level3")]):
             with col:
                 st.markdown(f"#### 🔍 {nm} Model")
                 _render_shap_for_model(mdl, nm, df_input)
+
+        
 
         
        
