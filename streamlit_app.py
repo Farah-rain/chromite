@@ -310,18 +310,57 @@ if uploaded_file is not None:
             df_display["L3_TopShare"]    = l3_share
             df_display["L3_TopMeanProb"] = round(l3_mean, 3)
 
-        # -------------------- SHAP 可解释性 --------------------
+
+       
+# -------------------- 📈 SHAP Interpretability --------------------
         st.subheader("📈 SHAP Interpretability")
+
+        def _safe_class_names(m):  # 取出并转成字符串，防止 numpy 类型导致显示异常
+            try:
+                return [str(x) for x in list(getattr(m, "classes_", []))]
+            except Exception:
+                return []
+
         cols = st.columns(3)
-        for col, (model, name) in zip(cols, [(model_lvl1, "Level1"), (model_lvl2, "Level2"), (model_lvl3, "Level3")]):
+        for col, (model, name) in zip(cols, [
+            (model_lvl1, "Level1"),
+            (model_lvl2, "Level2"),
+            (model_lvl3, "Level3"),
+        ]):
             with col:
                 st.markdown(f"#### 🔍 {name} Model")
                 explainer = _make_explainer_cached(_model_signature(model), _model=model)
                 shap_values = explainer.shap_values(df_input)
-                shap.summary_plot(shap_values, df_input, plot_type="bar", show=False)
-                st.pyplot(plt.gcf()); plt.close()
-                shap.summary_plot(shap_values, df_input, show=False)
-                st.pyplot(plt.gcf()); plt.close()
+                class_names = _safe_class_names(model)
+
+                # 多分类：shap_values 是 list，直接传 class_names，避免显示 class1/2/3
+                if isinstance(shap_values, list):
+                    shap.summary_plot(
+                        shap_values, df_input,
+                        plot_type="bar",
+                        class_names=class_names,  # ★ 关键：传入真实类别名
+                        show=False
+                    )
+                    st.pyplot(plt.gcf()); plt.close()
+
+                    shap.summary_plot(
+                        shap_values, df_input,
+                        class_names=class_names,  # ★ 关键：传入真实类别名
+                        show=False
+                    )
+                    st.pyplot(plt.gcf()); plt.close()
+
+                else:
+                    # 二分类时 shap 通常返回单个 ndarray（正类的 SHAP）
+                    # 我们在图下方标注“正类”名称，避免歧义
+                    pos_name = class_names[-1] if class_names else "positive"
+                    shap.summary_plot(shap_values, df_input, plot_type="bar", show=False)
+                    st.caption(f"Interpretation shown for positive class: **{pos_name}**")
+                    st.pyplot(plt.gcf()); plt.close()
+
+                    shap.summary_plot(shap_values, df_input, show=False)
+                    st.caption(f"Interpretation shown for positive class: **{pos_name}**")
+                    st.pyplot(plt.gcf()); plt.close()
 
         # -------------------- ✅ 样品一致性 + 组结果（根据是否存在 L3 动态展示） --------------------
         st.subheader("🧪 Specimen Confirmation & Group Result")
