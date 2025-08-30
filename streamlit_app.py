@@ -99,10 +99,10 @@ def preprocess_uploaded_data(df):
     Fe2_mol = df["FeOre"]/mol_wt["FeO"]
     Fe3_mol = df["Fe2O3re"]/mol_wt["Fe2O3"]*2
 
-    df["Cr_CrplusAl"] = Cr_mol / (Cr_mol + Al_mol)
-    df["Mg_MgplusFe"] = Mg_mol / (Mg_mol + Fe2_mol)
-    df["FeCrAlFe"]   = Fe3_mol / (Fe3_mol + Cr_mol + Al_mol)
-    df["FeMgFe"]     = Fe2_mol / (Fe2_mol + Mg_mol)
+    df["Cr#"] = Cr_mol / (Cr_mol + Al_mol)
+    df["Mg#"] = Mg_mol / (Mg_mol + Fe2_mol)
+    df["Fe*"]   = Fe3_mol / (Fe3_mol + Cr_mol + Al_mol)
+    df["Fe#"]     = Fe2_mol / (Fe2_mol + Mg_mol)
     return df
 
 def to_numeric_df(df):
