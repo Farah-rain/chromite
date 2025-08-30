@@ -315,6 +315,7 @@ if uploaded_file is not None:
 # -------------------- 📈 SHAP Interpretability --------------------
 
 # -------------------- 📈 SHAP Interpretability --------------------
+        # -------------------- 📈 SHAP Interpretability --------------------
         st.subheader("📈 SHAP Interpretability")
 
         def _safe_class_names(m):   # 取真实类别名并转成字符串
@@ -323,37 +324,61 @@ if uploaded_file is not None:
             except Exception:
                 return []
 
+        def _bar_per_class(shap_vals_1class, X, title, top_k=15):
+            """
+            自己画条形图：按该“类别”的 mean(|SHAP|) 取前 top_k 个特征。
+            这样完全避免 shap 内置 legend 里出现 class1/2/3。
+            """
+            mean_abs = np.mean(np.abs(shap_vals_1class), axis=0)
+            order = np.argsort(mean_abs)[-top_k:]                # 取 Top-K
+            feats = X.columns.values[order]
+            vals  = mean_abs[order]
+
+            fig, ax = plt.subplots(figsize=(6, 3 + 0.2*len(order)))
+            ax.barh(range(len(vals)), vals)
+            ax.set_yticks(range(len(vals)))
+            ax.set_yticklabels(feats)
+            ax.set_xlabel("mean |SHAP|")
+            ax.set_title(title)
+            fig.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
         def _render_shap_for_model(model, level_name, X):
-            """兼容多分类(list) / 二分类(ndarray)，并强制在图标题里写出真实类别名。"""
+            """
+            兼容多分类(list) / 二分类(ndarray)：
+            - 多分类：每个“真实类别名”各画一张条形图 + 各画一张蜂群图；
+            - 二分类：把 shap ndarray 拆成“负类= -sv、正类= sv”，同样各画一张。
+            """
             explainer = _make_explainer_cached(_model_signature(model), _model=model)
             sv = explainer.shap_values(X)
             class_names = _safe_class_names(model)
 
-            # —— 多分类：shap_values 通常是 list[n_classes] —— #
+            # 多分类：sv 是 list[n_classes]
             if isinstance(sv, list):
-                # 1) 全类汇总条形图（均值 |SHAP|），并在标题注明“Classes: …”
-                shap.summary_plot(sv, X, plot_type="bar", show=False)
-                title = f"{level_name} — mean |SHAP| per feature (Classes: {', '.join(class_names) or 'N/A'})"
-                plt.title(title)
-                st.pyplot(plt.gcf()); plt.close()
-
-                # 2) 每个类别各画一张蜂群图，标题里直接写真实类别名
+                # 逐类画：条形图 + 蜂群图（标题写真实类别名）
                 for i, cname in enumerate(class_names or [f"class {i}" for i in range(len(sv))]):
+                    _bar_per_class(sv[i], X, title=f"{level_name} — class: {cname}")
                     shap.summary_plot(sv[i], X, show=False)
-                    plt.title(f"{level_name} — class: {cname}")
+                    plt.title(f"{level_name} — SHAP beeswarm (class: {cname})")
                     st.pyplot(plt.gcf()); plt.close()
 
-            # —— 二分类：shap_values 常是 ndarray[N, F]（正类） —— #
             else:
-                pos_name = class_names[-1] if class_names else "positive"
-                # 条形图
-                shap.summary_plot(sv, X, plot_type="bar", show=False)
-                plt.title(f"{level_name} — mean |SHAP| (positive class: {pos_name})")
-                st.pyplot(plt.gcf()); plt.close()
-                # 蜂群图
-                shap.summary_plot(sv, X, show=False)
-                plt.title(f"{level_name} — SHAP beeswarm (positive class: {pos_name})")
-                st.pyplot(plt.gcf()); plt.close()
+                # 二分类常返回单个 ndarray（正类的 SHAP）
+                # 我们手工构造两个类别的视图：负类 = -sv，正类 = sv
+                if len(class_names) == 2:
+                    sv_list  = [ -sv, sv ]
+                    names    = [ class_names[0], class_names[1] ]
+                else:
+                    # 极少数情况下拿不到 classes_；至少保证正类能画
+                    sv_list  = [ sv ]
+                    names    = [ class_names[-1] if class_names else "positive" ]
+
+                for arr, cname in zip(sv_list, names):
+                    _bar_per_class(arr, X, title=f"{level_name} — class: {cname}")
+                    shap.summary_plot(arr, X, show=False)
+                    plt.title(f"{level_name} — SHAP beeswarm (class: {cname})")
+                    st.pyplot(plt.gcf()); plt.close()
 
         cols = st.columns(3)
         for col, (mdl, nm) in zip(cols, [(model_lvl1, "Level1"), (model_lvl2, "Level2"), (model_lvl3, "Level3")]):
@@ -361,6 +386,7 @@ if uploaded_file is not None:
                 st.markdown(f"#### 🔍 {nm} Model")
                 _render_shap_for_model(mdl, nm, df_input)
 
+        
        
 
         # -------------------- ✅ 样品一致性 + 组结果（根据是否存在 L3 动态展示） --------------------
