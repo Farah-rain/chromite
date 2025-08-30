@@ -114,54 +114,41 @@ def level_group_stats(labels, classes, prob_by_class, p_max=None, p_unknown=None
     """
     labels: 该层每行的标签（可含空串/Unknown）
     classes: 该层类别数组（顺序与 prob_by_class 列一致）
-    prob_by_class: 形状 (N, C)，为该层“最终用于判定”的每类概率（L3 用父子约束后的 p）
-                   对于未路由到该层的行，整行可为 NaN
+    prob_by_class: (N, C) 该层“最终用于判定”的每类概率（L3 用父子约束后的 p）
     p_max: 每行该层的最大概率（约束后），用于计算 Unknown 概率
-    p_unknown: 可传入每行 Unknown 概率；若为 None 则用 (1 - p_max)
-    fill_unknown_for_empty: True 时，对空串（未路由）行将标签改为 Unknown，且 Unknown 概率记为 1.0
-
-    返回：
-      top_label, top_share_str (如 '17/18'), top_mean_prob (float)
+    p_unknown: 若传 None 则用 (1 - p_max)
+    fill_unknown_for_empty: True 时，未路由（空串）视为 Unknown，Unknown 概率=1.0，实类概率=0
+    返回: (top_label, top_share_str '17/18', top_mean_prob)
     """
     N = len(labels)
     s = pd.Series(labels, dtype="object").fillna("")
-    # 空串（未路由）是否当作 Unknown
     if fill_unknown_for_empty:
         empty_mask = (s == "")
         if empty_mask.any():
             s.loc[empty_mask] = ABSTAIN_LABEL
-            # 对未路由行：Unknown 概率 = 1.0；各实类概率视为 0
             if p_unknown is None and p_max is not None:
                 p_unknown = np.where(empty_mask, 1.0, (1.0 - (p_max if p_max is not None else 0.0)))
             elif p_unknown is not None:
                 p_unknown = np.where(empty_mask, 1.0, p_unknown)
-
             if prob_by_class is not None and isinstance(prob_by_class, np.ndarray):
                 prob_by_class = np.where(
                     np.repeat(empty_mask.values[:, None], prob_by_class.shape[1], axis=1),
                     0.0,
                     np.nan_to_num(prob_by_class, nan=0.0)
                 )
-    # 计算每类占比（分母用 N，不丢弃 Unknown 和未路由）
+
     counts = s.value_counts()
-    # 候选为所有出现过的标签
     candidates = list(counts.index)
 
-    # 计算每个候选的“组内平均概率”
     means = {}
     for lab in candidates:
         if lab == ABSTAIN_LABEL:
-            # Unknown 概率：优先用 p_unknown，否则回退 1 - p_max
-            pu = None
-            if p_unknown is not None:
-                pu = np.array(p_unknown, dtype=float)
-            elif p_max is not None:
+            if p_unknown is None and p_max is not None:
                 pu = 1.0 - np.array(p_max, dtype=float)
-            if pu is None:
-                pu = np.zeros(N, dtype=float)
-            means[lab] = float(np.nanmean(pu))  # 用 N 行的均值（未路由也已填充）
+            else:
+                pu = np.array(p_unknown, dtype=float) if p_unknown is not None else np.zeros(N)
+            means[lab] = float(np.nanmean(pu))
         else:
-            # 实类概率：从 prob_by_class 取对应列；缺失按 0 计
             if prob_by_class is None:
                 means[lab] = 0.0
             else:
@@ -170,9 +157,8 @@ def level_group_stats(labels, classes, prob_by_class, p_max=None, p_unknown=None
                     means[lab] = 0.0
                 else:
                     arr = np.nan_to_num(prob_by_class[:, col[0]], nan=0.0)
-                    means[lab] = float(np.mean(arr))  # 全 N 行均值
+                    means[lab] = float(np.mean(arr))
 
-    # 选多数票；平手比均值；再平手按层级细化处处理（外层排序控制）
     max_count = counts.max()
     top_cands = [lab for lab, c in counts.items() if c == max_count]
     top_label = max(top_cands, key=lambda lab: means.get(lab, 0.0))
@@ -212,8 +198,7 @@ if uploaded_file is not None:
         classes1 = model_lvl1.classes_.astype(str)
         pred1_idx = np.argmax(prob1, axis=1)
         pred1_label = classes1[pred1_idx]
-        p1max = prob1[np.arange(N), pred1_idx]                # 仅用于展示；L1 不需要 Unknown 概率
-        # 为 group 统计准备：各类概率矩阵就是 prob1；Unknown 概率无
+        p1max = prob1[np.arange(N), pred1_idx]                # 仅展示；L1 无 Unknown
 
         # ========= Level 2（阈值 + Unknown，仅 L1=Extraterrestrial）=========
         _pred1_norm = pd.Series(pred1_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
@@ -225,7 +210,7 @@ if uploaded_file is not None:
         p2unk = np.full(N, np.nan)
 
         if mask_lvl2.any():
-            pr2 = model_lvl2.predict_proba(df_input[mask_lvl2])     # 仅对通过路由的行
+            pr2 = model_lvl2.predict_proba(df_input[mask_lvl2])
             classes2 = model_lvl2.classes_.astype(str)
             pred2_masked, p2max_masked = apply_threshold(pr2, classes2, THRESHOLDS["Level2"])
             prob2_raw[mask_lvl2] = pr2
@@ -233,9 +218,9 @@ if uploaded_file is not None:
             p2max[mask_lvl2] = p2max_masked
             p2unk[mask_lvl2] = 1.0 - p2max_masked
 
-        # 将未路由行当作 Unknown，Unknown 概率置 1.0，各实类概率置 0.0（不丢行）
+        # 对未路由行：视为 Unknown；Unknown 概率=1；实类概率=0
         classes2 = model_lvl2.classes_.astype(str)
-        prob2 = np.nan_to_num(prob2_raw, nan=0.0)                 # (N, C2)
+        prob2 = np.nan_to_num(prob2_raw, nan=0.0)
         empty2 = (pd.Series(pred2_label, dtype="object") == "")
         if empty2.any():
             pred2_label[empty2.values] = ABSTAIN_LABEL
@@ -244,54 +229,61 @@ if uploaded_file is not None:
         # ========= Level 3（父子约束 + 阈值 + Unknown，仅 L2 in {OC,CC}）=========
         _pred2_norm = pd.Series(pred2_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
         mask_lvl3 = _pred2_norm.isin(["oc", "cc"]).to_numpy()
+        routed_to_L3 = bool(mask_lvl3.any())   # ☆ 关键：整组是否“只到二级”
 
         C3 = len(model_lvl3.classes_)
         classes3 = model_lvl3.classes_.astype(str)
-        prob3_raw = np.full((N, C3), np.nan)     # 原始模型输出
-        prob3_post = np.zeros((N, C3))           # 约束&归一后，用于均值（未路由/未参与=0）
+        prob3_raw = np.full((N, C3), np.nan)
+        prob3_post = np.zeros((N, C3))
         pred3_label = np.full(N, "", dtype=object)
         p3max = np.full(N, np.nan)
         p3unk = np.full(N, np.nan)
 
-        if mask_lvl3.any():
+        if routed_to_L3:
             all_pr3 = model_lvl3.predict_proba(df_input[mask_lvl3])
             idxs = np.where(mask_lvl3)[0]
             prob3_raw[mask_lvl3] = all_pr3
             for row_i, i_global in enumerate(idxs):
-                parent = str(pred2_label[i_global])          # "OC" 或 "CC"（含 Unknown 也可能出现）
+                parent = str(pred2_label[i_global])          # "OC" 或 "CC"
                 allowed = valid_lvl3.get(parent, set())
                 p = all_pr3[row_i].copy()
                 if allowed:
                     mask_allowed = np.isin(classes3, list(allowed))
                     p = p * mask_allowed
                     if p.sum() > 0:
-                        p = p / p.sum()                      # 约束后归一
+                        p = p / p.sum()
                 j = int(np.argmax(p)); pmax = float(p[j])
                 pred3_label[i_global] = classes3[j] if pmax >= THRESHOLDS["Level3"] else ABSTAIN_LABEL
                 p3max[i_global] = pmax
                 p3unk[i_global] = 1.0 - pmax
-                prob3_post[i_global] = p                     # 保存约束后的类别概率
+                prob3_post[i_global] = p
 
-        # 未路由到 L3 的行：设为 Unknown，Unknown 概率=1.0，实类概率全 0
-        empty3 = (pd.Series(pred3_label, dtype="object") == "")
-        if empty3.any():
-            pred3_label[empty3.values] = ABSTAIN_LABEL
-            p3unk[empty3.values] = 1.0
-            # prob3_post 已经是 0 行，不需要处理
+            # 未路由到 L3 的行（这时存在）：设为 Unknown，Unknown 概率=1
+            empty3 = (pd.Series(pred3_label, dtype="object") == "")
+            if empty3.any():
+                pred3_label[empty3.values] = ABSTAIN_LABEL
+                p3unk[empty3.values] = 1.0
 
-        # -------------------- 展示结果表 --------------------
+        # -------------------- 构造展示表 --------------------
         df_display = df_uploaded.copy().reset_index(drop=True)
         df_display.insert(0, "Index", df_display.index + 1)
         df_display.insert(1, "Level1_Pred", pred1_label)
         df_display.insert(2, "Level2_Pred", pred2_label)
-        df_display.insert(3, "Level3_Pred", pred3_label)
 
         # 原始各类概率（便于核查）
         for i, c in enumerate(classes1): df_display[f"P_Level1_{c}"] = prob1[:, i]
         for i, c in enumerate(classes2): df_display[f"P_Level2_{c}"] = prob2[:, i]
-        for i, c in enumerate(classes3): df_display[f"P_Level3_{c}"] = prob3_raw[:, i]  # L3 原始（可选）
 
-        # ===== 组内多数票 + 均值概率（Unknown 参与；分母=N；未路由视 Unknown）=====
+        # 只有当整组有样本路由到 L3 时才添加 L3 列
+        if routed_to_L3:
+            df_display.insert(3, "Level3_Pred", pred3_label)
+            for i, c in enumerate(classes3):
+                df_display[f"P_Level3_{c}"] = prob3_raw[:, i]  # 原始（未必约束后）
+
+        st.subheader("🧾 Predictions")
+        st.dataframe(df_display)
+
+        # -------------------- 组内多数票 + 均值概率（Unknown参与；分母=N） --------------------
         # L1（无 Unknown）
         l1_label, l1_share, l1_mean = level_group_stats(
             labels=pred1_label, classes=classes1, prob_by_class=prob1,
@@ -302,22 +294,21 @@ if uploaded_file is not None:
             labels=pred2_label, classes=classes2, prob_by_class=prob2,
             p_max=p2max, p_unknown=p2unk, fill_unknown_for_empty=True
         )
-        # L3（有 Unknown；用约束后的 prob3_post 参与均值）
-        l3_label, l3_share, l3_mean = level_group_stats(
-            labels=pred3_label, classes=classes3, prob_by_class=prob3_post,
-            p_max=p3max, p_unknown=p3unk, fill_unknown_for_empty=True
-        )
+        # L3（只有当 routed_to_L3 为真时才计算）
+        if routed_to_L3:
+            l3_label, l3_share, l3_mean = level_group_stats(
+                labels=pred3_label, classes=classes3, prob_by_class=prob3_post,
+                p_max=p3max, p_unknown=p3unk, fill_unknown_for_empty=True
+            )
 
-        # 将组级统计写回表（每行相同，便于导出/筛选）
-        df_display["L1_TopShare"]     = l1_share
-        df_display["L1_TopMeanProb"]  = round(l1_mean, 3)
-        df_display["L2_TopShare"]     = l2_share
-        df_display["L2_TopMeanProb"]  = round(l2_mean, 3)
-        df_display["L3_TopShare"]     = l3_share
-        df_display["L3_TopMeanProb"]  = round(l3_mean, 3)
-
-        st.subheader("🧾 Predictions")
-        st.dataframe(df_display)
+        # 把组级统计写回表（每行相同，便于导出/筛选）
+        df_display["L1_TopShare"]    = l1_share
+        df_display["L1_TopMeanProb"] = round(l1_mean, 3)
+        df_display["L2_TopShare"]    = l2_share
+        df_display["L2_TopMeanProb"] = round(l2_mean, 3)
+        if routed_to_L3:
+            df_display["L3_TopShare"]    = l3_share
+            df_display["L3_TopMeanProb"] = round(l3_mean, 3)
 
         # -------------------- SHAP 可解释性 --------------------
         st.subheader("📈 SHAP Interpretability")
@@ -332,33 +323,81 @@ if uploaded_file is not None:
                 shap.summary_plot(shap_values, df_input, show=False)
                 st.pyplot(plt.gcf()); plt.close()
 
-        # -------------------- 样品一致性 + 组结果（三层比较） --------------------
+        # -------------------- ✅ 样品一致性 + 组结果（根据是否存在 L3 动态展示） --------------------
         st.subheader("🧪 Specimen Confirmation & Group Result")
         same_specimen = st.checkbox("I confirm all uploaded rows originate from the same physical specimen.")
         if same_specimen:
-            # 三层候选：先比 share，再比 mean prob，最后偏好更细层级
             depth = {"Level1": 1, "Level2": 2, "Level3": 3}
             cands = [
-                ("Level1", {"label": l1_label, "share": eval(l1_share.split('/')[0]) / N, "prob": l1_mean,
+                ("Level1", {"label": l1_label, "share": int(l1_share.split('/')[0]) / N, "prob": l1_mean,
                             "agree": int(l1_share.split('/')[0]), "total": N}),
-                ("Level2", {"label": l2_label, "share": eval(l2_share.split('/')[0]) / N, "prob": l2_mean,
+                ("Level2", {"label": l2_label, "share": int(l2_share.split('/')[0]) / N, "prob": l2_mean,
                             "agree": int(l2_share.split('/')[0]), "total": N}),
-                ("Level3", {"label": l3_label, "share": eval(l3_share.split('/')[0]) / N, "prob": l3_mean,
-                            "agree": int(l3_share.split('/')[0]), "total": N}),
             ]
+            if routed_to_L3:
+                cands.append(("Level3", {"label": l3_label, "share": int(l3_share.split('/')[0]) / N, "prob": l3_mean,
+                                         "agree": int(l3_share.split('/')[0]), "total": N}))
             final_level, final = sorted(cands, key=lambda t: (t[1]["share"], t[1]["prob"], depth[t[0]]), reverse=True)[0]
             st.success(
                 f"Final group result → **{final_level}: {final['label']}**  |  "
                 f"Probability (mean for this class): **{final['prob']:.3f}**  |  "
                 f"Share: **{final['agree']}/{final['total']} ({final['share']:.0%})**"
             )
+
             # 对比小表
-            comp = pd.DataFrame([
-                {"Level":"Level1","Top class":l1_label,"Share":l1_share,"Mean prob":round(l1_mean,3)},
-                {"Level":"Level2","Top class":l2_label,"Share":l2_share,"Mean prob":round(l2_mean,3)},
-                {"Level":"Level3","Top class":l3_label,"Share":l3_share,"Mean prob":round(l3_mean,3)},
-            ])
-            st.dataframe(comp)
+            rows = [
+                {"Level": "Level1", "Top class": l1_label, "Share": l1_share, "Mean prob": round(l1_mean, 3)},
+                {"Level": "Level2", "Top class": l2_label, "Share": l2_share, "Mean prob": round(l2_mean, 3)},
+            ]
+            if routed_to_L3:
+                rows.append({"Level": "Level3", "Top class": l3_label, "Share": l3_share, "Mean prob": round(l3_mean, 3)})
+            st.dataframe(pd.DataFrame(rows))
+
+        # -------------------- 🧩 恢复：训练池 & GitHub 同步 --------------------
+        st.subheader("🧩 Add Predictions to Training Pool?")
+        if st.checkbox("✅ Confirm to append these samples to the training pool for future retraining"):
+            df_save = df_input.copy()
+            df_save["Level1"] = pred1_label
+            df_save["Level2"] = pred2_label
+            if routed_to_L3:
+                df_save["Level3"] = pred3_label
+            # 也可把组结果写入（如需可解注释）
+            # df_save["Group_L1_Top"] = l1_label; df_save["Group_L2_Top"] = l2_label
+            # if routed_to_L3: df_save["Group_L3_Top"] = l3_label
+
+            local_path = "training_pool.csv"
+            header_needed = not os.path.exists(local_path)
+            df_save.to_csv(local_path, mode="a", header=header_needed, index=False, encoding="utf-8-sig")
+            st.success("✅ Samples appended to local training pool.")
+
+            try:
+                GITHUB_TOKEN = (
+                    st.secrets.get("gh_token")
+                    or (st.secrets.get("github", {}) or {}).get("token")
+                )
+                repo_owner = st.secrets.get("gh_repo_owner", "Farah-rain")
+                repo_name  = st.secrets.get("gh_repo_name",  "chromite")
+                dst_path   = st.secrets.get("gh_dst_path",   "training_pool.csv")
+                branch     = st.secrets.get("gh_branch",     "main")
+
+                if not GITHUB_TOKEN:
+                    st.info("GitHub token not configured (gh_token or github.token). Saved locally only.")
+                else:
+                    with open(local_path, "rb") as f:
+                        content_b64 = base64.b64encode(f.read()).decode("utf-8")
+                    url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{dst_path}"
+                    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+                    r = requests.get(url, headers=headers)
+                    sha = r.json().get("sha") if r.status_code == 200 else None
+                    payload = {"message": "update training pool", "content": content_b64, "branch": branch}
+                    if sha: payload["sha"] = sha
+                    put_resp = requests.put(url, headers=headers, json=payload)
+                    if 200 <= put_resp.status_code < 300:
+                        st.success("✅ Synced to GitHub repository.")
+                    else:
+                        st.warning(f"⚠️ GitHub sync failed ({put_resp.status_code}): {put_resp.text[:300]}")
+            except Exception as e:
+                st.error(f"❌ GitHub sync error: {e}")
 
         # -------------------- 结果下载 --------------------
         output = BytesIO()
