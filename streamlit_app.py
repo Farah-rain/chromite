@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -12,16 +11,85 @@ st.set_page_config(page_title="Chromite Extraterrestrial Origin Classifier", lay
 st.title("✨ Chromite Extraterrestrial Origin Classifier")
 
 # -------------------- 常量与映射（与训练一致；注释中文） --------------------
-ABSTAIN_LABEL = "Unknown"  # Unknown 标签统一口径
-THRESHOLDS = {"Level2": 0.90, "Level3": 0.90}  # Level2/Level3 的放行阈值
-valid_lvl3 = {  # 父子约束（若模型没有聚合类 "UOC"，改为 UOC-H/L/LL）
+ABSTAIN_LABEL = "Unclassified"   # ← 统一改名
+THRESHOLDS = {"Level2": 0.90, "Level3": 0.90}  # 兜底统一阈值（若无类阈值文件）
+# Level2 的“近身对抗”margin（只对 OC 生效；可按需改 0.04/0.05）
+MARGINS_LEVEL2 = {"OC": 0.04}
+
+valid_lvl3 = {
     "OC": {"EOC-H", "EOC-L", "EOC-LL", "UOC"},
     "CC": {"CM-CO", "CR-clan", "CV"}
 }
 
-# -------------------- 小工具函数 --------------------
+# -------------------- 概率校准 & 类阈值工具 --------------------
+def _load_joblib_pair(primary_path, fallback_path):
+    """优先 models/ 下；否则当前目录。"""
+    p = primary_path if os.path.exists(primary_path) else fallback_path
+    return joblib.load(p) if os.path.exists(p) else None
+
+def load_calibrator_and_threshold(level_name: str):
+    """载入某层的校准器与类阈值；若缺失返回 None"""
+    calib = _load_joblib_pair(f"models/calib_{level_name}.joblib", f"calib_{level_name}.joblib")
+    thr   = _load_joblib_pair(f"models/thr_{level_name}.joblib",   f"thr_{level_name}.joblib")
+    return calib, thr
+
+def apply_calibrators(proba: np.ndarray, classes: np.ndarray, calibrators: dict | None):
+    """对每列做等值回归校准；若无校准器则原样返回。之后做一次按行归一化。"""
+    if calibrators is None:
+        return proba
+    P = np.zeros_like(proba, dtype=float)
+    for j, cls in enumerate(classes):
+        ir = calibrators.get(str(cls)) if isinstance(calibrators, dict) else None
+        P[:, j] = (ir.transform(proba[:, j]) if ir is not None else proba[:, j])
+    eps = 1e-12
+    row_sum = P.sum(axis=1, keepdims=True)
+    P = (P + eps) / np.maximum(row_sum + eps * P.shape[1], eps)
+    return P
+
+def predict_with_classwise_thresholds(
+    proba_cal: np.ndarray,
+    classes: np.ndarray,
+    thr_dict: dict | None,
+    unknown_label: str,
+    margins: dict | None = None
+):
+    """
+    规则：
+    1) 从“达标类”中（p >= 类阈值）选概率最大的类；
+    2) 若配置了 margin[{cls}]，还需满足 p(cls) - next_best >= margin；
+    3) 若无达标，则输出 unknown_label。
+    返回 (pred_labels, pmax_array)。
+    """
+    C = proba_cal.shape[1]
+    thr_dict = thr_dict or {}
+    preds, pmax = [], []
+    for row in proba_cal:
+        # 候选：达到该类阈值的类索引
+        cand = [j for j, cls in enumerate(classes) if row[j] >= float(thr_dict.get(str(cls), 0.5))]
+        if not cand:
+            preds.append(unknown_label); pmax.append(float(np.nanmax(row)))
+            continue
+        # 在候选中取分数最高
+        j_best = max(cand, key=lambda k: row[k])
+        best_score = row[j_best]
+        # runner-up（全类里第二高）
+        order = np.argsort(row)[::-1]
+        j_second = order[1] if C >= 2 else j_best
+        gap = best_score - row[j_second]
+        # margin 判定（若配置）
+        ok_margin = True
+        if margins is not None:
+            m = float(margins.get(str(classes[j_best]), 0.0))
+            ok_margin = (gap >= m)
+        if ok_margin:
+            preds.append(classes[j_best]); pmax.append(best_score)
+        else:
+            preds.append(unknown_label); pmax.append(best_score)
+    return np.array(preds, dtype=object), np.array(pmax, dtype=float)
+
+# -------------------- 小工具函数（你原来的） --------------------
 def apply_threshold(proba: np.ndarray, classes: np.ndarray, thr: float):
-    """对分类概率应用阈值：最大概率>=thr 时输出该类别，否则 Unknown。返回(预测, 最大概率)。"""
+    """对分类概率应用统一阈值：最大概率>=thr 时输出该类别，否则 Unclassified。返回(预测, 最大概率)。"""
     max_idx = np.argmax(proba, axis=1)
     max_val = proba[np.arange(proba.shape[0]), max_idx]
     pred = np.where(max_val >= thr, classes[max_idx], ABSTAIN_LABEL)
@@ -109,17 +177,8 @@ def to_numeric_df(df):
     """尽量把所有列转 float，无法转换则置 NaN。"""
     return df.apply(pd.to_numeric, errors="coerce")
 
-# ========= 单层多数票 + 平均概率（含 Unknown & 未路由行）=========
+# ========= 单层多数票 + 平均概率（含 Unclassified & 未路由行）=========
 def level_group_stats(labels, classes, prob_by_class, p_max=None, p_unknown=None, fill_unknown_for_empty=True):
-    """
-    labels: 该层每行的标签（可含空串/Unknown）
-    classes: 该层类别数组（顺序与 prob_by_class 列一致）
-    prob_by_class: (N, C) 该层“最终用于判定”的每类概率（L3 用父子约束后的 p）
-    p_max: 每行该层的最大概率（约束后），用于计算 Unknown 概率
-    p_unknown: 若传 None 则用 (1 - p_max)
-    fill_unknown_for_empty: True 时，未路由（空串）视为 Unknown，Unknown 概率=1.0，实类概率=0
-    返回: (top_label, top_share_str '17/18', top_mean_prob)
-    """
     N = len(labels)
     s = pd.Series(labels, dtype="object").fillna("")
     if fill_unknown_for_empty:
@@ -177,6 +236,10 @@ with st.sidebar:
         st.error("Failed to load models or feature columns.")
         st.exception(e)
 
+# 载入校准器 & 类阈值（若存在）
+calib_L2, thr_L2 = load_calibrator_and_threshold("Level2")
+calib_L3, thr_L3 = load_calibrator_and_threshold("Level3")
+
 # -------------------- 上传文件并处理 --------------------
 uploaded_file = st.file_uploader("Upload an Excel or CSV file (must include all feature columns).", type=["xlsx", "csv"])
 
@@ -193,14 +256,14 @@ if uploaded_file is not None:
 
         N = len(df_input)
 
-        # ========= Level 1（不启用 Unknown）=========
+        # ========= Level 1（不启用 Unclassified）=========
         prob1 = model_lvl1.predict_proba(df_input)            # (N, C1)
         classes1 = model_lvl1.classes_.astype(str)
         pred1_idx = np.argmax(prob1, axis=1)
         pred1_label = classes1[pred1_idx]
-        p1max = prob1[np.arange(N), pred1_idx]                # 仅展示；L1 无 Unknown
+        p1max = prob1[np.arange(N), pred1_idx]                # 仅展示；L1 无 Unclassified
 
-        # ========= Level 2（阈值 + Unknown，仅 L1=Extraterrestrial）=========
+        # ========= Level 2（校准 + 类阈值 + margin；仅 L1=Extraterrestrial）=========
         _pred1_norm = pd.Series(pred1_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
         mask_lvl2 = (_pred1_norm == "extraterrestrial").to_numpy()
 
@@ -208,28 +271,37 @@ if uploaded_file is not None:
         pred2_label = np.full(N, "", dtype=object)
         p2max = np.full(N, np.nan)
         p2unk = np.full(N, np.nan)
+        classes2 = model_lvl2.classes_.astype(str)
 
         if mask_lvl2.any():
             pr2 = model_lvl2.predict_proba(df_input[mask_lvl2])
-            classes2 = model_lvl2.classes_.astype(str)
-            pred2_masked, p2max_masked = apply_threshold(pr2, classes2, THRESHOLDS["Level2"])
-            prob2_raw[mask_lvl2] = pr2
+            # 应用校准器（若有）
+            pr2_cal = apply_calibrators(pr2, classes2, calib_L2)
+            # 优先类阈值 + margin；否则回退统一阈值
+            if thr_L2 is not None:
+                pred2_masked, p2max_masked = predict_with_classwise_thresholds(
+                    proba_cal=pr2_cal, classes=classes2, thr_dict=thr_L2,
+                    unknown_label=ABSTAIN_LABEL, margins=MARGINS_LEVEL2
+                )
+            else:
+                pred2_masked, p2max_masked = apply_threshold(pr2_cal, classes2, THRESHOLDS["Level2"])
+
+            prob2_raw[mask_lvl2] = pr2  # 展示原始概率
             pred2_label[mask_lvl2] = pred2_masked
             p2max[mask_lvl2] = p2max_masked
             p2unk[mask_lvl2] = 1.0 - p2max_masked
 
-        # 对未路由行：视为 Unknown；Unknown 概率=1；实类概率=0
-        classes2 = model_lvl2.classes_.astype(str)
+        # 对未路由行：视为 Unclassified；Unclassified 概率=1；实类概率=0
         prob2 = np.nan_to_num(prob2_raw, nan=0.0)
         empty2 = (pd.Series(pred2_label, dtype="object") == "")
         if empty2.any():
             pred2_label[empty2.values] = ABSTAIN_LABEL
             p2unk[empty2.values] = 1.0
 
-        # ========= Level 3（父子约束 + 阈值 + Unknown，仅 L2 in {OC,CC}）=========
+        # ========= Level 3（父子约束 + 校准 + 类阈值（无 margin）========= 
         _pred2_norm = pd.Series(pred2_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
         mask_lvl3 = _pred2_norm.isin(["oc", "cc"]).to_numpy()
-        routed_to_L3 = bool(mask_lvl3.any())   # ☆ 关键：整组是否“只到二级”
+        routed_to_L3 = bool(mask_lvl3.any())
 
         C3 = len(model_lvl3.classes_)
         classes3 = model_lvl3.classes_.astype(str)
@@ -241,24 +313,40 @@ if uploaded_file is not None:
 
         if routed_to_L3:
             all_pr3 = model_lvl3.predict_proba(df_input[mask_lvl3])
+            # 校准（若有）
+            all_pr3_cal = apply_calibrators(all_pr3, classes3, calib_L3)
+
             idxs = np.where(mask_lvl3)[0]
-            prob3_raw[mask_lvl3] = all_pr3
+            prob3_raw[mask_lvl3] = all_pr3  # 展示原始概率
             for row_i, i_global in enumerate(idxs):
                 parent = str(pred2_label[i_global])          # "OC" 或 "CC"
                 allowed = valid_lvl3.get(parent, set())
-                p = all_pr3[row_i].copy()
+                p = all_pr3_cal[row_i].copy()
+                # 父子约束：不在 allowed 的类置零，并对剩余归一化
                 if allowed:
                     mask_allowed = np.isin(classes3, list(allowed))
                     p = p * mask_allowed
-                    if p.sum() > 0:
-                        p = p / p.sum()
-                j = int(np.argmax(p)); pmax = float(p[j])
-                pred3_label[i_global] = classes3[j] if pmax >= THRESHOLDS["Level3"] else ABSTAIN_LABEL
-                p3max[i_global] = pmax
-                p3unk[i_global] = 1.0 - pmax
+                    s = p.sum()
+                    if s > 0: p = p / s
+                # 类阈值（若缺失→统一阈值）
+                if thr_L3 is not None:
+                    pred_tmp, pmax_tmp = predict_with_classwise_thresholds(
+                        proba_cal=p.reshape(1, -1),
+                        classes=classes3,
+                        thr_dict=thr_L3,
+                        unknown_label=ABSTAIN_LABEL,
+                        margins=None
+                    )
+                    pred3_label[i_global] = pred_tmp[0]
+                    p3max[i_global] = pmax_tmp[0]
+                else:
+                    j = int(np.argmax(p)); pmax = float(p[j])
+                    pred3_label[i_global] = classes3[j] if pmax >= THRESHOLDS["Level3"] else ABSTAIN_LABEL
+                    p3max[i_global] = pmax
+                p3unk[i_global] = 1.0 - p3max[i_global]
                 prob3_post[i_global] = p
 
-            # 未路由到 L3 的行（这时存在）：设为 Unknown，Unknown 概率=1
+            # 未路由到 L3 的行：设为 Unclassified
             empty3 = (pd.Series(pred3_label, dtype="object") == "")
             if empty3.any():
                 pred3_label[empty3.values] = ABSTAIN_LABEL
@@ -283,13 +371,13 @@ if uploaded_file is not None:
         st.subheader("🧾 Predictions")
         st.dataframe(df_display)
 
-        # -------------------- 组内多数票 + 均值概率（Unknown参与；分母=N） --------------------
-        # L1（无 Unknown）
+        # -------------------- 组内多数票 + 均值概率（Unclassified 参与；分母=N） --------------------
+        # L1（无 Unclassified）
         l1_label, l1_share, l1_mean = level_group_stats(
             labels=pred1_label, classes=classes1, prob_by_class=prob1,
             p_max=p1max, p_unknown=None, fill_unknown_for_empty=False
         )
-        # L2（有 Unknown）
+        # L2（有 Unclassified）
         l2_label, l2_share, l2_mean = level_group_stats(
             labels=pred2_label, classes=classes2, prob_by_class=prob2,
             p_max=p2max, p_unknown=p2unk, fill_unknown_for_empty=True
@@ -310,27 +398,22 @@ if uploaded_file is not None:
             df_display["L3_TopShare"]    = l3_share
             df_display["L3_TopMeanProb"] = round(l3_mean, 3)
 
-
-       
-# -------------------- 📈 SHAP Interpretability --------------------
-
+        # -------------------- 📈 SHAP Interpretability --------------------
         st.subheader("📈 SHAP Interpretability")
 
-        TOP_K = 13  # 一次显示的特征数（你现在就要 13）
+        TOP_K = 13  # 一次显示的特征数
         chart_kind = st.radio(
             "Per-class SHAP view", ["Bar (mean |SHAP|)", "Beeswarm"],
             horizontal=True, index=0
         )
 
         def _safe_class_names(m):
-            """取真实类别名并转成字符串（防止 numpy 类型导致显示异常）"""
             try:
                 return [str(x) for x in list(getattr(m, "classes_", []))]
             except Exception:
                 return []
 
         def _bar_per_class(shap_vals_1class, X, title, top_k=TOP_K):
-            """自己画每类的柱状图：mean(|SHAP|) 的 Top-K；强制压成 1D 防 shape 问题"""
             mean_abs = np.mean(np.abs(shap_vals_1class), axis=0)
             mean_abs = np.array(mean_abs).reshape(-1)
             order = np.argsort(mean_abs)
@@ -338,7 +421,6 @@ if uploaded_file is not None:
             sel = order[-k:]
             feats = np.array(X.columns)[sel]
             vals  = mean_abs[sel]
-
             fig, ax = plt.subplots(figsize=(7, max(3, 0.28*len(sel)+2)))
             ax.barh(np.arange(len(vals)), vals)
             ax.set_yticks(np.arange(len(vals)))
@@ -346,71 +428,66 @@ if uploaded_file is not None:
             ax.set_xlabel("mean |SHAP|")
             ax.set_title(title)
             fig.tight_layout()
-            st.pyplot(fig)
-            plt.close(fig)
+            st.pyplot(fig); plt.close(fig)
 
         def _sv_to_list_per_class(sv, X, class_names):
-            """
-            把 shap_values 规整成：list[n_classes]，每项形状 (N,F)。
-            兼容 list / (N,F) / (C,N,F) / (N,F,C) / (N,C,F) / (N,F*C) / (N*C,F)
-            """
             N, F = X.shape
             if isinstance(sv, list):
                 return [np.asarray(a).reshape(N, F) for a in sv]
-
             arr = np.asarray(sv)
             if arr.ndim == 2:
                 r, c = arr.shape
-                if r == N and c == F:                      # (N,F) -> 二分类正类
+                if r == N and c == F:
                     if class_names and len(class_names) == 2:
-                        return [-arr, arr]                 # 负类/正类
+                        return [-arr, arr]
                     return [arr]
-                if r == N and c % F == 0:                  # (N, F*C)
+                if r == N and c % F == 0:
                     C = c // F
                     return [arr[:, i*F:(i+1)*F].reshape(N, F) for i in range(C)]
-                if c == F and r % N == 0:                  # (N*C, F)
+                if c == F and r % N == 0:
                     C = r // N
                     return [arr[i*N:(i+1)*N, :].reshape(N, F) for i in range(C)]
                 if class_names and arr.size == N*F*len(class_names):
                     C = len(class_names)
                     try:
-                        tmp = arr.reshape(N, F, C)         # (N,F,C)
+                        tmp = arr.reshape(N, F, C)
                         return [tmp[:, :, i] for i in range(C)]
                     except Exception:
                         try:
-                            tmp = arr.reshape(C, N, F)     # (C,N,F)
+                            tmp = arr.reshape(C, N, F)
                             return [tmp[i, :, :] for i in range(C)]
                         except Exception:
                             pass
-                return [arr.reshape(N, F)]                  # 兜底
-
+                return [arr.reshape(N, F)]
             if arr.ndim == 3:
-                if arr.shape[0] == N and arr.shape[1] == F:     # (N,F,C)
+                if arr.shape[0] == N and arr.shape[1] == F:
                     C = arr.shape[2]
                     return [arr[:, :, i].reshape(N, F) for i in range(C)]
-                if arr.shape[1] == N and arr.shape[2] == F:     # (C,N,F)
+                if arr.shape[1] == N and arr.shape[2] == F:
                     C = arr.shape[0]
                     return [arr[i, :, :].reshape(N, F) for i in range(C)]
-                if arr.shape[0] == N and arr.shape[2] == F:     # (N,C,F)
+                if arr.shape[0] == N and arr.shape[2] == F:
                     C = arr.shape[1]
                     return [arr[:, i, :].reshape(N, F) for i in range(C)]
+            return [arr.reshape(N, F)]
 
-            return [arr.reshape(N, F)]                            # 最终兜底
+        def _model_signature(model) -> str:
+            try:    params_tup = tuple(sorted((k, str(v)) for k, v in model.get_params().items()))
+            except Exception: params_tup = ()
+            try:    classes = tuple(map(str, getattr(model, "classes_", ())))
+            except Exception: classes = ()
+            return f"{model.__class__.__name__}|{hash(params_tup)}|{hash(classes)}"
 
         def _render_per_class(model, level_name, X):
-            """每类一图（用 tabs 切换类别）；柱状/蜂群二选一；类名对齐 classes_。"""
             explainer = _make_explainer_cached(_model_signature(model), _model=model)
             raw_sv = explainer.shap_values(X)
             class_names = _safe_class_names(model)
             sv_list = _sv_to_list_per_class(raw_sv, X, class_names)
-
-            # 类名与 sv 数量不一致时做兜底
             if not class_names or len(class_names) != len(sv_list):
                 class_names = [f"class {i}" for i in range(len(sv_list))]
                 if len(sv_list) == 2:
                     class_names = ["negative", "positive"]
-
-            tabs = st.tabs(class_names)  # ☆ 每类一个 tab，界面清爽
+            tabs = st.tabs(class_names)
             for tab, cname, arr in zip(tabs, class_names, sv_list):
                 with tab:
                     if chart_kind.startswith("Bar"):
@@ -426,8 +503,7 @@ if uploaded_file is not None:
                 st.markdown(f"#### 🔍 {nm} (per class)")
                 _render_per_class(mdl, nm, df_input)
 
-
-        # -------------------- ✅ 样品一致性 + 组结果（根据是否存在 L3 动态展示） --------------------
+        # -------------------- ✅ 样品一致性 + 组结果 --------------------
         st.subheader("🧪 Specimen Confirmation & Group Result")
         same_specimen = st.checkbox("I confirm all uploaded rows originate from the same physical specimen.")
         if same_specimen:
@@ -447,8 +523,6 @@ if uploaded_file is not None:
                 f"Probability (mean for this class): **{final['prob']:.3f}**  |  "
                 f"Share: **{final['agree']}/{final['total']} ({final['share']:.0%})**"
             )
-
-            # 对比小表
             rows = [
                 {"Level": "Level1", "Top class": l1_label, "Share": l1_share, "Mean prob": round(l1_mean, 3)},
                 {"Level": "Level2", "Top class": l2_label, "Share": l2_share, "Mean prob": round(l2_mean, 3)},
@@ -457,7 +531,7 @@ if uploaded_file is not None:
                 rows.append({"Level": "Level3", "Top class": l3_label, "Share": l3_share, "Mean prob": round(l3_mean, 3)})
             st.dataframe(pd.DataFrame(rows))
 
-        # -------------------- 🧩 恢复：训练池 & GitHub 同步 --------------------
+        # -------------------- 训练池 & GitHub 同步 --------------------
         st.subheader("🧩 Add Predictions to Training Pool?")
         if st.checkbox("✅ Confirm to append these samples to the training pool for future retraining"):
             df_save = df_input.copy()
@@ -465,9 +539,6 @@ if uploaded_file is not None:
             df_save["Level2"] = pred2_label
             if routed_to_L3:
                 df_save["Level3"] = pred3_label
-            # 也可把组结果写入（如需可解注释）
-            # df_save["Group_L1_Top"] = l1_label; df_save["Group_L2_Top"] = l2_label
-            # if routed_to_L3: df_save["Group_L3_Top"] = l3_label
 
             local_path = "training_pool.csv"
             header_needed = not os.path.exists(local_path)
