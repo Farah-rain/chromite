@@ -1,3 +1,5 @@
+# streamlit_app.py  —— Chromite Extraterrestrial Origin Classifier (integrated full script)
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -5,12 +7,13 @@ import shap
 import matplotlib.pyplot as plt
 import os, joblib, requests, base64
 from io import BytesIO
+from itertools import chain
 
 # -------------------- 页面配置 --------------------
 st.set_page_config(page_title="Chromite Extraterrestrial Origin Classifier", layout="wide")
 st.title("✨ Chromite Extraterrestrial Origin Classifier")
 
-# -------------------- 常量 --------------------
+# -------------------- 常量与映射（与训练一致） --------------------
 ABSTAIN_LABEL = "Unclassified"
 THRESHOLDS = {"Level2": 0.90, "Level3": 0.90}
 MARGINS_LEVEL2 = {"OC": 0.04}
@@ -20,7 +23,10 @@ valid_lvl3 = {
     "CC": {"CM-CO", "CR-clan", "CV"}
 }
 
-# -------------------- 工具：载入/阈值/校准 --------------------
+# 稳定柔和调色板（用于所有饼图/柱状图）
+PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors))
+
+# -------------------- 概率校准 & 类阈值工具 --------------------
 def _load_joblib_pair(primary_path, fallback_path):
     p = primary_path if os.path.exists(primary_path) else fallback_path
     return joblib.load(p) if os.path.exists(p) else None
@@ -43,8 +49,11 @@ def apply_calibrators(proba: np.ndarray, classes: np.ndarray, calibrators: dict 
     return P
 
 def predict_with_classwise_thresholds(
-    proba_cal: np.ndarray, classes: np.ndarray, thr_dict: dict | None,
-    unknown_label: str, margins: dict | None = None
+    proba_cal: np.ndarray,
+    classes: np.ndarray,
+    thr_dict: dict | None,
+    unknown_label: str,
+    margins: dict | None = None
 ):
     C = proba_cal.shape[1]
     thr_dict = thr_dict or {}
@@ -63,10 +72,13 @@ def predict_with_classwise_thresholds(
         if margins is not None:
             m = float(margins.get(str(classes[j_best]), 0.0))
             ok_margin = (gap >= m)
-        preds.append(classes[j_best] if ok_margin else unknown_label)
-        pmax.append(best_score)
+        if ok_margin:
+            preds.append(classes[j_best]); pmax.append(best_score)
+        else:
+            preds.append(unknown_label); pmax.append(best_score)
     return np.array(preds, dtype=object), np.array(pmax, dtype=float)
 
+# -------------------- 其他工具函数 --------------------
 def apply_threshold(proba: np.ndarray, classes: np.ndarray, thr: float):
     max_idx = np.argmax(proba, axis=1)
     max_val = proba[np.arange(proba.shape[0]), max_idx]
@@ -92,7 +104,7 @@ def load_model_and_metadata():
     return model_lvl1, model_lvl2, model_lvl3, features
 
 @st.cache_resource
-def _make_explainer_cached(sig: str, _model):  # cache SHAP explainer
+def _make_explainer_cached(sig: str, _model):
     return shap.TreeExplainer(_model)
 
 def _model_signature(model) -> str:
@@ -102,7 +114,6 @@ def _model_signature(model) -> str:
     except Exception: classes = ()
     return f"{model.__class__.__name__}|{hash(params_tup)}|{hash(classes)}"
 
-# -------------------- 数据预处理 --------------------
 def preprocess_uploaded_data(df):
     MW = {'TiO2':79.866,'Al2O3':101.961,'Cr2O3':151.99,'FeO':71.844,'MnO':70.937,'MgO':40.304,'ZnO':81.38,'SiO2':60.0843,'V2O3':149.88}
     O_num={'TiO2':2,'Al2O3':3,'Cr2O3':3,'FeO':1,'MnO':1,'MgO':1,'ZnO':1,'SiO2':2,'V2O3':3}
@@ -151,7 +162,7 @@ def preprocess_uploaded_data(df):
 def to_numeric_df(df):
     return df.apply(pd.to_numeric, errors="coerce")
 
-# -------------------- 统计辅助 --------------------
+# ========= 单层多数票 + 平均概率（含 Unclassified & 未路由行）=========
 def level_group_stats(labels, classes, prob_by_class, p_max=None, p_unknown=None, fill_unknown_for_empty=True):
     N = len(labels)
     s = pd.Series(labels, dtype="object").fillna("")
@@ -169,8 +180,10 @@ def level_group_stats(labels, classes, prob_by_class, p_max=None, p_unknown=None
                     0.0,
                     np.nan_to_num(prob_by_class, nan=0.0)
                 )
+
     counts = s.value_counts()
     candidates = list(counts.index)
+
     means = {}
     for lab in candidates:
         if lab == ABSTAIN_LABEL:
@@ -189,6 +202,7 @@ def level_group_stats(labels, classes, prob_by_class, p_max=None, p_unknown=None
                 else:
                     arr = np.nan_to_num(prob_by_class[:, col[0]], nan=0.0)
                     means[lab] = float(np.mean(arr))
+
     max_count = counts.max()
     top_cands = [lab for lab, c in counts.items() if c == max_count]
     top_label = max(top_cands, key=lambda lab: means.get(lab, 0.0))
@@ -207,11 +221,11 @@ with st.sidebar:
         st.error("Failed to load models or feature columns.")
         st.exception(e)
 
-# 载入校准器 & 类阈值
+# 载入校准器 & 类阈值（若存在）
 calib_L2, thr_L2 = load_calibrator_and_threshold("Level2")
 calib_L3, thr_L3 = load_calibrator_and_threshold("Level3")
 
-# -------------------- 主流程 --------------------
+# -------------------- 上传文件并处理 --------------------
 uploaded_file = st.file_uploader("Upload an Excel or CSV file (must include all feature columns).", type=["xlsx", "csv"])
 
 if uploaded_file is not None:
@@ -224,16 +238,17 @@ if uploaded_file is not None:
         for col in feature_list:
             if col not in df_input.columns: df_input[col] = np.nan
         df_input = to_numeric_df(df_input[feature_list])
+
         N = len(df_input)
 
-        # ===== Level 1 =====
+        # ========= Level 1 =========
         prob1 = model_lvl1.predict_proba(df_input)
         classes1 = model_lvl1.classes_.astype(str)
         pred1_idx = np.argmax(prob1, axis=1)
         pred1_label = classes1[pred1_idx]
         p1max = prob1[np.arange(N), pred1_idx]
 
-        # ===== Level 2（仅 L1=extraterrestrial）=====
+        # ========= Level 2（只对 L1=Extraterrestrial）=========
         _pred1_norm = pd.Series(pred1_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
         mask_lvl2 = (_pred1_norm == "extraterrestrial").to_numpy()
 
@@ -253,6 +268,7 @@ if uploaded_file is not None:
                 )
             else:
                 pred2_masked, p2max_masked = apply_threshold(pr2_cal, classes2, THRESHOLDS["Level2"])
+
             prob2_raw[mask_lvl2] = pr2
             pred2_label[mask_lvl2] = pred2_masked
             p2max[mask_lvl2] = p2max_masked
@@ -264,7 +280,7 @@ if uploaded_file is not None:
             pred2_label[empty2.values] = ABSTAIN_LABEL
             p2unk[empty2.values] = 1.0
 
-        # ===== Level 3（父子约束）=====
+        # ========= Level 3（父子约束）=========
         _pred2_norm = pd.Series(pred2_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
         mask_lvl3 = _pred2_norm.isin(["oc", "cc"]).to_numpy()
         routed_to_L3 = bool(mask_lvl3.any())
@@ -294,8 +310,11 @@ if uploaded_file is not None:
                     if s > 0: p = p / s
                 if thr_L3 is not None:
                     pred_tmp, pmax_tmp = predict_with_classwise_thresholds(
-                        proba_cal=p.reshape(1, -1), classes=classes3, thr_dict=thr_L3,
-                        unknown_label=ABSTAIN_LABEL, margins=None
+                        proba_cal=p.reshape(1, -1),
+                        classes=classes3,
+                        thr_dict=thr_L3,
+                        unknown_label=ABSTAIN_LABEL,
+                        margins=None
                     )
                     pred3_label[i_global] = pred_tmp[0]
                     p3max[i_global] = pmax_tmp[0]
@@ -311,7 +330,7 @@ if uploaded_file is not None:
                 pred3_label[empty3.values] = ABSTAIN_LABEL
                 p3unk[empty3.values] = 1.0
 
-        # ===== 展示表 =====
+        # -------------------- 结果表 --------------------
         df_display = df_uploaded.copy().reset_index(drop=True)
         df_display.insert(0, "Index", df_display.index + 1)
         df_display.insert(1, "Level1_Pred", pred1_label)
@@ -324,13 +343,23 @@ if uploaded_file is not None:
                 df_display[f"P_Level3_{c}"] = prob3_raw[:, i]
 
         st.subheader("🧾 Predictions")
-        st.dataframe(df_display)
+        st.dataframe(df_display, use_container_width=True)
 
-        # ===== 写回组级统计（便于导出）=====
-        l1_label, l1_share, l1_mean = level_group_stats(pred1_label, classes1, prob1, p_max=p1max, fill_unknown_for_empty=False)
-        l2_label, l2_share, l2_mean = level_group_stats(pred2_label, classes2, prob2, p_max=p2max, p_unknown=p2unk, fill_unknown_for_empty=True)
+        # -------------------- 组内多数票 + 均值概率 --------------------
+        l1_label, l1_share, l1_mean = level_group_stats(
+            labels=pred1_label, classes=classes1, prob_by_class=prob1,
+            p_max=p1max, p_unknown=None, fill_unknown_for_empty=False
+        )
+        l2_label, l2_share, l2_mean = level_group_stats(
+            labels=pred2_label, classes=classes2, prob_by_class=prob2,
+            p_max=p2max, p_unknown=p2unk, fill_unknown_for_empty=True
+        )
         if routed_to_L3:
-            l3_label, l3_share, l3_mean = level_group_stats(pred3_label, classes3, prob3_post, p_max=p3max, p_unknown=p3unk, fill_unknown_for_empty=True)
+            l3_label, l3_share, l3_mean = level_group_stats(
+                labels=pred3_label, classes=classes3, prob_by_class=prob3_post,
+                p_max=p3max, p_unknown=p3unk, fill_unknown_for_empty=True
+            )
+
         df_display["L1_TopShare"]    = l1_share
         df_display["L1_TopMeanProb"] = round(l1_mean, 3)
         df_display["L2_TopShare"]    = l2_share
@@ -339,190 +368,253 @@ if uploaded_file is not None:
             df_display["L3_TopShare"]    = l3_share
             df_display["L3_TopMeanProb"] = round(l3_mean, 3)
 
-        # ===== SHAP（3列）+ tabs 横向滚动 =====
+        # -------------------- SHAP：tabs 可横向滚动 + 三列并排 --------------------
         st.subheader("📈 SHAP Interpretability")
         st.markdown("""
         <style>
-        .stTabs [data-baseweb="tab-list"]{overflow-x:auto!important;white-space:nowrap;scrollbar-width:thin;}
+        .stTabs [data-baseweb="tab-list"]{
+            overflow-x:auto!important;overflow-y:hidden;white-space:nowrap;
+            scrollbar-width:thin;-ms-overflow-style:auto;
+        }
         .stTabs [data-baseweb="tab"]{white-space:nowrap;padding:6px 10px;margin:0 2px;}
-        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar{height:8px;}
-        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb{background:rgba(0,0,0,.25);border-radius:8px;}
-        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-track{background:rgba(0,0,0,.06);border-radius:8px;}
+        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar{ height:8px; }
+        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb{ background:rgba(0,0,0,.25); border-radius:8px; }
+        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-track{ background:rgba(0,0,0,.06); border-radius:8px; }
         </style>
         """, unsafe_allow_html=True)
 
         TOP_K = 13
         chart_kind = st.radio("Per-class SHAP view", ["Bar (mean |SHAP|)", "Beeswarm"], horizontal=True, index=0)
 
-        def _bar_per_class(sv1c, X, title):
-            mean_abs = np.mean(np.abs(sv1c), axis=0).reshape(-1)
+        def _safe_class_names(m):
+            try:
+                return [str(x) for x in list(getattr(m, "classes_", []))]
+            except Exception:
+                return []
+
+        def _bar_per_class(shap_vals_1class, X, title, top_k=TOP_K):
+            mean_abs = np.mean(np.abs(shap_vals_1class), axis=0).reshape(-1)
             order = np.argsort(mean_abs)
-            sel = order[-min(TOP_K, len(order)):]
-            feats = np.array(X.columns)[sel]; vals = mean_abs[sel]
+            k = min(top_k, len(order))
+            sel = order[-k:]
+            feats = np.array(X.columns)[sel]
+            vals  = mean_abs[sel]
             fig, ax = plt.subplots(figsize=(7, max(3, 0.28*len(sel)+2)))
             ax.barh(np.arange(len(vals)), vals)
-            ax.set_yticks(np.arange(len(vals))); ax.set_yticklabels(feats)
-            ax.set_xlabel("mean |SHAP|"); ax.set_title(title); fig.tight_layout()
+            ax.set_yticks(np.arange(len(vals)))
+            ax.set_yticklabels(feats)
+            ax.set_xlabel("mean |SHAP|")
+            ax.set_title(title)
+            fig.tight_layout()
             st.pyplot(fig); plt.close(fig)
 
         def _sv_to_list_per_class(sv, X, class_names):
             N, F = X.shape
-            if isinstance(sv, list): return [np.asarray(a).reshape(N, F) for a in sv]
+            if isinstance(sv, list):
+                return [np.asarray(a).reshape(N, F) for a in sv]
             arr = np.asarray(sv)
             if arr.ndim == 2:
                 r, c = arr.shape
                 if r == N and c == F:
-                    if class_names is not None and len(class_names) == 2: return [-arr, arr]
+                    if class_names and len(class_names) == 2: return [-arr, arr]
                     return [arr]
-                if r == N and c % F == 0:  # (N, F*C)
+                if r == N and c % F == 0:
                     C = c // F; return [arr[:, i*F:(i+1)*F].reshape(N, F) for i in range(C)]
+                if c == F and r % N == 0:
+                    C = r // N; return [arr[i*N:(i+1)*N, :].reshape(N, F) for i in range(C)]
+                if class_names and arr.size == N*F*len(class_names):
+                    C = len(class_names)
+                    try:    tmp = arr.reshape(N, F, C); return [tmp[:, :, i] for i in range(C)]
+                    except: 
+                        try: tmp = arr.reshape(C, N, F); return [tmp[i, :, :] for i in range(C)]
+                        except: pass
                 return [arr.reshape(N, F)]
-            if arr.ndim == 3 and arr.shape[0] == N and arr.shape[1] == F:
-                C = arr.shape[2]; return [arr[:, :, i].reshape(N, F) for i in range(C)]
+            if arr.ndim == 3:
+                if arr.shape[0] == N and arr.shape[1] == F:
+                    C = arr.shape[2]; return [arr[:, :, i].reshape(N, F) for i in range(C)]
+                if arr.shape[1] == N and arr.shape[2] == F:
+                    C = arr.shape[0]; return [arr[i, :, :].reshape(N, F) for i in range(C)]
+                if arr.shape[0] == N and arr.shape[2] == F:
+                    C = arr.shape[1]; return [arr[:, i, :].reshape(N, F) for i in range(C)]
             return [arr.reshape(N, F)]
 
         def _render_per_class(model, level_name, X):
             explainer = _make_explainer_cached(_model_signature(model), _model=model)
             raw_sv = explainer.shap_values(X)
-            class_names = list(getattr(model, "classes_", []))
+            class_names = _safe_class_names(model)
             sv_list = _sv_to_list_per_class(raw_sv, X, class_names)
-            names = [str(c) for c in class_names] if class_names and len(class_names)==len(sv_list) else [f"class {i}" for i in range(len(sv_list))]
-            tabs = st.tabs([str(n) for n in names])
-            for tab, cname, arr in zip(tabs, names, sv_list):
+            if not class_names or len(class_names) != len(sv_list):
+                class_names = [f"class {i}" for i in range(len(sv_list))]
+                if len(sv_list) == 2: class_names = ["negative", "positive"]
+            tabs = st.tabs(class_names)
+            for tab, cname, arr in zip(tabs, class_names, sv_list):
                 with tab:
                     if chart_kind.startswith("Bar"):
-                        _bar_per_class(arr, X, f"{level_name} · {cname}")
+                        _bar_per_class(arr, X, title=f"{level_name} · {cname}", top_k=TOP_K)
                     else:
                         shap.summary_plot(arr, X, max_display=TOP_K, show=False)
                         plt.title(f"{level_name} · {cname}")
                         st.pyplot(plt.gcf()); plt.close()
 
-        cols_shap = st.columns(3)
-        for col, (mdl, nm) in zip(cols_shap, [(model_lvl1, "Level1"), (model_lvl2, "Level2"), (model_lvl3, "Level3")]):
+        cols = st.columns(3)
+        for col, (mdl, nm) in zip(cols, [(model_lvl1, "Level1"), (model_lvl2, "Level2"), (model_lvl3, "Level3")]):
             with col:
                 st.markdown(f"#### 🔍 {nm} (per class)")
                 _render_per_class(mdl, nm, df_input)
 
-        # ===== Summary（三个纵列）=====
-        st.subheader("📊 Summary (Level1 / Level2 / Level3)")
+        # -------------------- Summary + 饼图 + 柱状图 + 训练池 + 下载（整合块） --------------------
 
-        def _vc_df(labels: np.ndarray, total_n: int) -> pd.DataFrame:
+        # —— 每层计数（按真实类别名）——
+        def _vc_df_from_labels(labels: np.ndarray) -> pd.DataFrame:
             s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
             vc = s.value_counts(dropna=False)
             df = vc.rename_axis("Class").reset_index(name="count")
-            df["share"] = (df["count"] / float(total_n)).round(3)
-            return df.sort_values(["count", "Class"], ascending=[False, True], ignore_index=True)
+            df["share"] = (df["count"] / float(len(s) if len(s) else 1)).round(3)
+            return df[["Class", "count", "share"]]
 
-        df_l1 = _vc_df(pred1_label, N)
-        df_l2 = _vc_df(pred2_label, N)
-        df_l3 = _vc_df(pred3_label, N) if routed_to_L3 else pd.DataFrame({"Class": ["(not routed)"], "count": [0], "share": [0.0]})
+        df_l1 = _vc_df_from_labels(pred1_label).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
+        df_l2 = _vc_df_from_labels(pred2_label).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
+        df_l3 = (_vc_df_from_labels(pred3_label).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
+                 if routed_to_L3 else pd.DataFrame(columns=["Class","count","share"]))
 
-        cols_sum = st.columns(3, gap="large")
-        with cols_sum[0]: st.markdown("##### Level 1"); st.dataframe(df_l1, use_container_width=True)
-        with cols_sum[1]: st.markdown("##### Level 2"); st.dataframe(df_l2, use_container_width=True)
-        with cols_sum[2]: st.markdown("##### Level 3"); st.dataframe(df_l3, use_container_width=True)
-
-        # ===== 饼图（合并小类 + 外置引线 + 图例 + 环形）=====
-        st.markdown("##### Class share (pie)")
-
+        # —— 合并 Others（小类折叠）——
         def _collapse_others(df: pd.DataFrame, total_n: int, keep_top: int = 7, tiny_cut: float = 0.02) -> pd.DataFrame:
-            df = df.sort_values(["count", "Class"], ascending=[False, True]).reset_index(drop=True)
-            if total_n <= 0 or len(df) <= keep_top:  # 仍需剔除极小
-                pass
-            frac = df["count"] / float(total_n) if total_n > 0 else 0
-            mask_tiny = (frac < tiny_cut) if isinstance(frac, pd.Series) else pd.Series([False]*len(df))
-            head = df.loc[~mask_tiny].head(max(keep_top - 1, 0))
-            tail = pd.concat([df.loc[mask_tiny], df.loc[~mask_tiny].iloc[max(keep_top - 1, 0):]], ignore_index=True)
-            if len(tail) > 0:
-                others = pd.DataFrame([{
-                    "Class": "Others",
-                    "count": int(tail["count"].sum()),
-                    "share": round(float(tail["count"].sum()) / float(total_n) if total_n>0 else 0.0, 3)
-                }])
-                out = pd.concat([head, others], ignore_index=True)
+            if df.empty: return df
+            df = df.sort_values(["count","Class"], ascending=[False,True]).reset_index(drop=True)
+            if total_n <= 0 or len(df) <= keep_top:
+                out = df.copy()
             else:
-                out = head.copy()
+                frac = df["count"] / float(total_n)
+                mask_tiny = (frac < tiny_cut)
+                head = df.loc[~mask_tiny].head(max(keep_top-1, 0))
+                tail = pd.concat([df.loc[mask_tiny], df.loc[~mask_tiny].iloc[max(keep_top-1, 0):]], ignore_index=True)
+                if len(tail) > 0:
+                    others = pd.DataFrame([{
+                        "Class": "Others",
+                        "count": int(tail["count"].sum()),
+                        "share": round(float(tail["count"].sum()) / float(total_n) if total_n>0 else 0.0, 3)
+                    }])
+                    out = pd.concat([head, others], ignore_index=True)
+                else:
+                    out = head.copy()
             s = float(out["count"].sum()) or 1.0
             out["share"] = (out["count"] / s).round(3)
             return out
 
-        def _pie_donut(col, df: pd.DataFrame, title: str, total_n: int, small_cut: float = 0.06, tiny_cut: float = 0.02):
+        # —— 环形饼图（小扇区引线+防重叠+轻微 explode+图例）——
+        def _pie_donut(col, df: pd.DataFrame, title: str, total_n: int,
+                       small_cut: float = 0.06, tiny_cut: float = 0.02):
             with col:
-                if total_n == 0 or df["count"].sum() == 0:
-                    fig, ax = plt.subplots(figsize=(4.2, 4))
-                    ax.text(0.5, 0.5, "No data", ha="center", va="center")
-                    ax.axis("off"); st.pyplot(fig); plt.close(fig); return
+                if df.empty or int(df["count"].sum()) == 0 or total_n == 0:
+                    fig, ax = plt.subplots(figsize=(4.8,4.2))
+                    ax.text(0.5, 0.5, "No data", ha="center", va="center"); ax.axis("off")
+                    st.pyplot(fig); plt.close(fig); return
+
                 df_plot = _collapse_others(df, total_n=total_n, keep_top=7, tiny_cut=tiny_cut)
                 labels = df_plot["Class"].astype(str).tolist()
                 sizes  = df_plot["count"].astype(int).to_numpy()
                 fracs  = sizes / sizes.sum()
-                fig, ax = plt.subplots(figsize=(5.2, 4.6), constrained_layout=True)
-                
-                res = ax.pie(
-                    sizes, startangle=90, counterclock=False,
-                    wedgeprops=dict(width=0.35, linewidth=0.8, edgecolor="white"),
-                    labels=None, autopct=None
-                )
-                wedges = res[0]   # 第 0 个永远是扇形 patch 列表
 
-                for w, lab, f in zip(wedges, labels, fracs):
-                    ang = (w.theta2 + w.theta1) / 2.0
-                    x, y = np.cos(np.deg2rad(ang)), np.sin(np.deg2rad(ang))
-                    pct_txt = f"{int(round(100*f))}%"
+                colors  = [PALETTE[i % len(PALETTE)] for i in range(len(labels))]
+                explode = [0.06 if f < small_cut else 0.0 for f in fracs]
+
+                fig, ax = plt.subplots(figsize=(6.0,4.6))
+                res = ax.pie(
+                    sizes, startangle=110, counterclock=False,
+                    wedgeprops=dict(width=0.38, linewidth=0.8, edgecolor="white"),
+                    labels=None, autopct=None, colors=colors, explode=explode
+                )
+                wedges = res[0]
+
+                def _mid_angle(w):  # radians
+                    return np.deg2rad(0.5*(w.theta1+w.theta2))
+
+                # 大扇区百分比放环内
+                for w, f in zip(wedges, fracs):
                     if f >= small_cut:
-                        ax.text(0.68*x, 0.68*y, pct_txt, ha="center", va="center", fontsize=10)
-                    else:
-                        ax.annotate(
-                            f"{lab}  {pct_txt}",
-                            xy=(x*0.86, y*0.86), xytext=(1.14*np.sign(x), 1.14*y),
-                            textcoords='data', ha='left' if x>=0 else 'right', va='center',
-                            fontsize=9,
-                            arrowprops=dict(arrowstyle='-', connectionstyle='angle3,angleA=0,angleB=90',
-                                            linewidth=0.8, shrinkA=0, shrinkB=0)
-                        )
+                        ang = _mid_angle(w)
+                        x, y = 0.62*np.cos(ang), 0.62*np.sin(ang)
+                        ax.text(x, y, f"{int(round(100*f))}%", ha="center", va="center", fontsize=10)
+
+                # 小扇区外置引线 + 防重叠（左右两列轨道）
+                small_idx = [i for i, f in enumerate(fracs) if f < small_cut]
+                if small_idx:
+                    info = [(i, _mid_angle(wedges[i]), np.sin(_mid_angle(wedges[i]))) for i in small_idx]
+                    left  = [t for t in info if np.cos(t[1]) < 0]
+                    right = [t for t in info if np.cos(t[1]) >= 0]
+                    left.sort(key=lambda x: -x[2]); right.sort(key=lambda x: -x[2])
+
+                    def place(lst, side=+1):
+                        n = len(lst); 
+                        if n == 0: return
+                        y_targets = np.linspace(0.9, -0.9, n)
+                        for (i, ang, _), y_tgt in zip(lst, y_targets):
+                            xw, yw = 0.86*np.cos(ang), 0.86*np.sin(ang)
+                            xmid, xend = 1.02*side, 1.22*side
+                            ax.plot([xw, xmid, xend], [yw, y_tgt, y_tgt], lw=0.8, color="black")
+                            ax.text(xend + 0.02*side, y_tgt, f"{labels[i]}  {int(round(100*fracs[i]))}%",
+                                    ha="left" if side>0 else "right", va="center", fontsize=9)
+
+                    place(left,  side=-1)
+                    place(right, side=+1)
+
                 ax.legend(wedges, labels, title="Class", loc="center left",
                           bbox_to_anchor=(1.02, 0.5), frameon=False, fontsize=9)
                 ax.axis("equal"); ax.set_title(title, pad=10)
                 st.pyplot(fig); plt.close(fig)
 
+        # —— 类别频率柱状图 —— 
+        def _bar_from_df(col, df: pd.DataFrame, title: str):
+            with col:
+                if df.empty or int(df["count"].sum()) == 0:
+                    st.info("No data"); return
+                fig, ax = plt.subplots(figsize=(6.0,3.8))
+                x = df["Class"].astype(str).tolist()
+                y = df["count"].astype(int).tolist()
+                ax.bar(range(len(x)), y, edgecolor="black", color=[PALETTE[i % len(PALETTE)] for i in range(len(x))])
+                ax.set_xticks(range(len(x)))
+                ax.set_xticklabels(x, rotation=35, ha="right")
+                ax.set_ylabel("Count"); ax.set_title(title)
+                fig.tight_layout(); st.pyplot(fig); plt.close(fig)
+
+        # —— 三列环形饼图 —— 
+        st.subheader("Class share (pie)")
         cols_pie = st.columns(3, gap="large")
         _pie_donut(cols_pie[0], df_l1, "Level1 · class share", total_n=N)
         _pie_donut(cols_pie[1], df_l2, "Level2 · class share", total_n=N)
         _pie_donut(cols_pie[2], df_l3, "Level3 · class share", total_n=N)
 
-        # ===== 三个频率柱状图 =====
-        st.subheader("📉 Class Frequency Histogram (per level)")
-        def _bar_from_df(col, df: pd.DataFrame, title: str):
-            with col:
-                fig, ax = plt.subplots(figsize=(5.2, 3.6))
-                x = df["Class"].astype(str).tolist()
-                y = df["count"].astype(int).tolist()
-                ax.bar(range(len(x)), y, edgecolor="black")
-                ax.set_xticks(range(len(x))); ax.set_xticklabels(x, rotation=45, ha="right")
-                ax.set_ylabel("count"); ax.set_title(title)
-                st.pyplot(fig); plt.close(fig)
-        cols_hist = st.columns(3, gap="large")
-        _bar_from_df(cols_hist[0], df_l1, "Level1 · frequency")
-        _bar_from_df(cols_hist[1], df_l2, "Level2 · frequency")
-        _bar_from_df(cols_hist[2], df_l3, "Level3 · frequency")
+        # —— 三列频率柱状图 —— 
+        st.subheader("Class frequency (bars)")
+        cols_bar = st.columns(3, gap="large")
+        _bar_from_df(cols_bar[0], df_l1, "Level1 · frequency")
+        _bar_from_df(cols_bar[1], df_l2, "Level2 · frequency")
+        _bar_from_df(cols_bar[2], df_l3, "Level3 · frequency")
 
-        # ===== 训练池（放在柱状图之后、下载之前）=====
+        # —— 训练池（放在柱状图之后，下载之前） —— 
         st.subheader("🧩 Add Predictions to Training Pool?")
         if st.checkbox("✅ Confirm to append these samples to the training pool for future retraining"):
             df_save = df_input.copy()
             df_save["Level1"] = pred1_label
             df_save["Level2"] = pred2_label
-            if routed_to_L3: df_save["Level3"] = pred3_label
+            if routed_to_L3:
+                df_save["Level3"] = pred3_label
+
             local_path = "training_pool.csv"
             header_needed = not os.path.exists(local_path)
             df_save.to_csv(local_path, mode="a", header=header_needed, index=False, encoding="utf-8-sig")
             st.success("✅ Samples appended to local training pool.")
+
             try:
-                GITHUB_TOKEN = (st.secrets.get("gh_token") or (st.secrets.get("github", {}) or {}).get("token"))
+                GITHUB_TOKEN = (
+                    st.secrets.get("gh_token")
+                    or (st.secrets.get("github", {}) or {}).get("token")
+                )
                 repo_owner = st.secrets.get("gh_repo_owner", "Farah-rain")
                 repo_name  = st.secrets.get("gh_repo_name",  "chromite")
                 dst_path   = st.secrets.get("gh_dst_path",   "training_pool.csv")
                 branch     = st.secrets.get("gh_branch",     "main")
+
                 if not GITHUB_TOKEN:
                     st.info("GitHub token not configured (gh_token or github.token). Saved locally only.")
                 else:
@@ -542,20 +634,17 @@ if uploaded_file is not None:
             except Exception as e:
                 st.error(f"❌ GitHub sync error: {e}")
 
-        # ===== 导出：Prediction + 三个纵列 Summary =====
+        # —— 下载（Prediction + Summary） —— 
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_display.to_excel(writer, index=False, sheet_name='Prediction')
-            ws = "Summary_3cols"
-            df_l1.to_excel(writer, index=False, sheet_name=ws, startrow=1, startcol=0)
-            df_l2.to_excel(writer, index=False, sheet_name=ws, startrow=1, startcol=5)
-            df_l3.to_excel(writer, index=False, sheet_name=ws, startrow=1, startcol=10)
-            ws_obj = writer.sheets[ws]
-            ws_obj.write(0, 0, "level1"); ws_obj.write(0, 5, "level2"); ws_obj.write(0, 10, "level3")
-            df_l1.assign(Level="Level1")[["Level","Class","count","share"]].to_excel(writer, index=False, sheet_name="Summary_L1")
-            df_l2.assign(Level="Level2")[["Level","Class","count","share"]].to_excel(writer, index=False, sheet_name="Summary_L2")
-            if routed_to_L3:
-                df_l3.assign(Level="Level3")[["Level","Class","count","share"]].to_excel(writer, index=False, sheet_name="Summary_L3")
+            df_l1_export = df_l1.copy(); df_l1_export.insert(0, "Level", "Level1")
+            df_l2_export = df_l2.copy(); df_l2_export.insert(0, "Level", "Level2")
+            df_l1_export.to_excel(writer, index=False, sheet_name='Summary_L1')
+            df_l2_export.to_excel(writer, index=False, sheet_name='Summary_L2')
+            if not df_l3.empty:
+                df_l3_export = df_l3.copy(); df_l3_export.insert(0, "Level", "Level3")
+                df_l3_export.to_excel(writer, index=False, sheet_name='Summary_L3')
 
         st.download_button(
             label="📥 Download Predictions (Excel)",
