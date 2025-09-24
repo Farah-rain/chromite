@@ -497,37 +497,7 @@ if uploaded_file is not None:
             st.markdown("##### Level 3")
             st.dataframe(df_l3, use_container_width=True)
 
-        # ---------- 饼图（自动引线 + 图例） ----------
-        def _pie_from_df(col, df: pd.DataFrame, title: str):
-            with col:
-                labels = df["Class"].astype(str).tolist()
-                sizes = df["count"].astype(int).to_numpy()
-                fig, ax = plt.subplots(figsize=(3.8, 3.8))
-                if sizes.sum() == 0:
-                    ax.text(0.5, 0.5, "No data", ha="center", va="center")
-                    ax.axis("off")
-                    st.pyplot(fig); plt.close(fig); return
-                fracs = sizes / sizes.sum()
-                small = bool((fracs < 0.06).any())
-                labeldist = 1.18 if small else 1.05
-                pctdist   = 0.78 if small else 0.60
-                wedges, texts, autotexts = ax.pie(
-                    sizes,
-                    labels=labels,
-                    autopct="%1.0f%%",
-                    startangle=90,
-                    counterclock=False,
-                    labeldistance=labeldist,
-                    pctdistance=pctdist
-                )
-                # 图例放右侧
-                ax.legend(wedges, labels, title="Class", loc="center left",
-                          bbox_to_anchor=(1.02, 0.5), frameon=False)
-                ax.axis("equal")
-                ax.set_title(title)
-                st.pyplot(fig); plt.close(fig)
-
-        
+       
         # ---------- 更清晰的饼图：小份额外置+引线、可合并 Others、环形 ----------
         st.markdown("##### Class share (pie)")
 
