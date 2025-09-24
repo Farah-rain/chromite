@@ -508,42 +508,44 @@ if uploaded_file is not None:
             df_l3 = df_l3.sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
 
         # -------------------- 📋 Classification summary (tables) --------------------
+        # -------------------- 📋 Classification summary (tables) + Pies + Bars --------------------
         st.subheader("📋 Classification summary (tables)")
 
-        def _make_summary_from_labels(labels) -> pd.DataFrame:
-            if labels is None:
-                return pd.DataFrame(columns=["Class", "Count", "Share"])
+        # ==== 1) 构建“只统计已路由”的分布 ====
+        def _vc_df_from_labels(labels: np.ndarray) -> pd.DataFrame:
             s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
-            if len(s) == 0:
-                return pd.DataFrame(columns=["Class", "Count", "Share"])
             vc = s.value_counts(dropna=False)
-            df = vc.rename_axis("Class").reset_index(name="Count")
-            df["Share"] = (df["Count"] / float(len(s))).round(3)
-            return df[["Class", "Count", "Share"]]
+            df = vc.rename_axis("Class").reset_index(name="count")
+            df["share"] = (df["count"] / float(len(s) if len(s) else 1)).round(3)
+            return df[["Class", "count", "share"]]
 
-        # —— 关键：只对进入该层的子集做汇总 —— #
-        mask_lvl2_only = (pd.Series(pred1_label, dtype="object")
-                        .astype("string").str.strip().str.lower() == "extraterrestrial").to_numpy()
+        # Level1（全量）
+        df_l1 = _vc_df_from_labels(pred1_label).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
+        N_L1 = int(df_l1["count"].sum())
 
-        mask_l3_oc = (pd.Series(pred2_label, dtype="object") == "OC").to_numpy()
-        mask_l3_cc = (pd.Series(pred2_label, dtype="object") == "CC").to_numpy()
+        # 只把 Level1 预测为 Extraterrestrial 的样本路由到 Level2
+        _mask_L2 = (pd.Series(pred1_label, dtype="object").str.strip().str.lower() == "extraterrestrial").to_numpy()
+        # Level2（仅路由样本）
+        pred2_routed = np.where(_mask_L2, pred2_label, np.nan)  # 非路由设 NaN，不参与统计
+        df_l2 = _vc_df_from_labels(pred2_routed[~pd.isna(pred2_routed)]).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
+        N_L2 = int(df_l2["count"].sum())
 
-        # L1：全量
-        df_l1_tbl = _make_summary_from_labels(pred1_label)
+        # 只把 Level2=OC/CC 的样本路由到 Level3，两组分别统计
+        _pred2_norm = pd.Series(pred2_label, dtype="object").str.strip().str.upper()
+        mask_L3_OC = _pred2_norm.eq("OC").to_numpy()
+        mask_L3_CC = _pred2_norm.eq("CC").to_numpy()
 
-        # L2：仅 L1=Extraterrestrial 的子集
-        df_l2_tbl = _make_summary_from_labels(pred2_label[mask_lvl2_only])
+        pred3_oc = np.where(mask_L3_OC, pred3_label, np.nan)
+        pred3_cc = np.where(mask_L3_CC, pred3_label, np.nan)
 
-        # L3：分别对 OC / CC 的子集
-        if routed_to_L3:
-            df_l3_oc_tbl = _make_summary_from_labels(pred3_label[mask_l3_oc])
-            df_l3_cc_tbl = _make_summary_from_labels(pred3_label[mask_l3_cc])
-        else:
-            df_l3_oc_tbl = pd.DataFrame(columns=["Class", "Count", "Share"])
-            df_l3_cc_tbl = pd.DataFrame(columns=["Class", "Count", "Share"])
+        df_l3_oc = _vc_df_from_labels(pred3_oc[~pd.isna(pred3_oc)]).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
+        df_l3_cc = _vc_df_from_labels(pred3_cc[~pd.isna(pred3_cc)]).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
+        N_L3_OC = int(df_l3_oc["count"].sum())
+        N_L3_CC = int(df_l3_cc["count"].sum())
 
+        # ==== 2) 三列表格（Level3 列中上下两个表：OC 在上，CC 在下） ====
         def _prep_table(df: pd.DataFrame, level_name: str) -> pd.DataFrame:
-            if df is None or df.empty or int(pd.to_numeric(df.get("Count", 0), errors="coerce").sum()) == 0:
+            if df is None or df.empty or int(pd.to_numeric(df.get("count", 0), errors="coerce").sum()) == 0:
                 return pd.DataFrame(columns=["Level", "Class", "Count", "Share"])
             d = df.copy()
             if "count" in d.columns: d.rename(columns={"count": "Count"}, inplace=True)
@@ -553,81 +555,42 @@ if uploaded_file is not None:
             d.insert(0, "Level", level_name)
             return d[["Level", "Class", "Count", "Share"]]
 
-        
-        # 三列布局：L1 | L2 | L3(OC在上、CC在下)
-        col_l1, col_l2, col_l3 = st.columns(3, gap="large")
+        cols_tbl = st.columns(3, gap="large")
+        with cols_tbl[0]:
+            tbl = _prep_table(df_l1, "Level1")
+            st.info("No data") if tbl.empty else st.dataframe(tbl, use_container_width=True)
 
-        with col_l1:
-            tbl = _prep_table(df_l1_tbl, "Level1")
-            if tbl.empty:
-                st.info("No data")
-            else:
-                st.dataframe(tbl, use_container_width=True)
+        with cols_tbl[1]:
+            tbl = _prep_table(df_l2, "Level2")
+            st.info("No data") if tbl.empty else st.dataframe(tbl, use_container_width=True)
 
-        with col_l2:
-            tbl = _prep_table(df_l2_tbl, "Level2")
-            if tbl.empty:
-                st.info("No data")
-            else:
-                st.dataframe(tbl, use_container_width=True)
+        with cols_tbl[2]:
+            tbl_oc = _prep_table(df_l3_oc, "Level3-OC")
+            tbl_cc = _prep_table(df_l3_cc, "Level3-CC")
+            st.info("No Level3-OC data") if tbl_oc.empty else st.dataframe(tbl_oc, use_container_width=True)
+            st.info("No Level3-CC data") if tbl_cc.empty else st.dataframe(tbl_cc, use_container_width=True)
 
-        with col_l3:
-            tbl_oc = _prep_table(df_l3_oc_tbl, "Level3-OC")
-            if tbl_oc.empty:
-                st.info("No Level3-OC data")
-            else:
-                st.dataframe(tbl_oc, use_container_width=True)
+        # ==== 3) 饼图（四列：L1 / L2(仅路由) / L3-OC / L3-CC） ====
+        st.subheader("🪐 Class share (pie)")
 
-            st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+        def _fmt_frac(sh: float) -> str:
+            if sh >= 0.1:      # ≥10%
+                return f"{sh:.0%}"
+            elif sh >= 0.01:   # 1%–10%
+                return f"{sh:.1%}"
+            elif sh >= 0.001:  # 0.1%–1%
+                return f"{sh:.2%}"
+            else:              # <0.1%
+                return f"{sh:.3%}"
 
-            tbl_cc = _prep_table(df_l3_cc_tbl, "Level3-CC")
-            if tbl_cc.empty:
-                st.info("No Level3-CC data")
-            else:
-                st.dataframe(tbl_cc, use_container_width=True)
-
-
-        # -------------------- 🪐 Class share (pie)（修正版：按分组分母） --------------------
-        st.subheader("🪐Class share (pie)")
-
-        def _vc_df_masked(labels: np.ndarray, total_n: int) -> pd.DataFrame:
-            """给定标签数组和明确分母total_n，返回 Class/count/share 表"""
-            s = pd.Series(labels, dtype="object").replace("", ABSTAIN_LABEL).fillna(ABSTAIN_LABEL)
-            vc = s.value_counts(dropna=False)
-            df = vc.rename_axis("Class").reset_index(name="count")
-            df["share"] = (df["count"] / float(total_n if total_n else 1)).round(3)
-            return df[["Class", "count", "share"]]
-
-        # —— 分组：L1 全部；L2 仅地外；L3 拆成 OC/CC ——
-        mask_L2_domain = pd.Series(pred1_label, dtype="object").str.lower().eq("extraterrestrial").to_numpy()
-        labels_L2_domain = pred2_label[mask_L2_domain]
-        N_L2 = int(mask_L2_domain.sum())
-
-        mask_OC = (pred2_label == "OC")
-        mask_CC = (pred2_label == "CC")
-        labels_L3_OC = pred3_label[mask_OC]
-        labels_L3_CC = pred3_label[mask_CC]
-        N_L3_OC = int(mask_OC.sum())
-        N_L3_CC = int(mask_CC.sum())
-
-        # 统计表（注意分母）
-        df_l1 = _vc_df_masked(pred1_label, N)
-        df_l2_ext = _vc_df_masked(labels_L2_domain, N_L2)
-        df_l3_oc = _vc_df_masked(labels_L3_OC, N_L3_OC) if routed_to_L3 else pd.DataFrame(columns=["Class","count","share"])
-        df_l3_cc = _vc_df_masked(labels_L3_CC, N_L3_CC) if routed_to_L3 else pd.DataFrame(columns=["Class","count","share"])
-
-        def _pie_full(col, df: pd.DataFrame, title: str, total_n: int,
-                    small_cut: float = 0.06, tiny_cut: float = 0.02):
+        def _pie_full(col, df: pd.DataFrame, title: str, total_n: int, small_cut: float = 0.06, tiny_cut: float = 0.02):
             with col:
                 if df.empty or int(df["count"].sum()) == 0 or total_n == 0:
                     fig, ax = plt.subplots(figsize=(4.8*chart_scale, 4.0*chart_scale))
-                    ax.text(0.5, 0.5, "No data", ha="center", va="center")
-                    ax.axis("off")
-                    st.pyplot(fig)
-                    plt.close(fig)
-                    return
+                    ax.text(0.5, 0.5, "No data", ha="center", va="center"); ax.axis("off")
+                    st.pyplot(fig); plt.close(fig); return
 
-                # 合并很小类，保持图例紧凑
+                # 折叠很小的类
                 def _collapse_others(df_in: pd.DataFrame, keep_top=8, tiny=0.02):
                     df_in = df_in.sort_values(["count","Class"], ascending=[False,True]).reset_index(drop=True)
                     if len(df_in) <= keep_top:
@@ -655,14 +618,8 @@ if uploaded_file is not None:
                 fracs  = sizes / sizes.sum()
                 colors = [PALETTE[i % len(PALETTE)] for i in range(len(labels))]
 
-                def _autopct(p):  # 扇区上的百分比（只对 ≥ small_cut 的扇区标注）
+                def _autopct(p):  # 仅在饼上显示较大的百分比
                     return f"{p:.0f}%" if (p/100.0) >= small_cut else ""
-
-                def _fmt_frac(sh: float) -> str:  # 图例中的百分比格式
-                    if sh >= 0.1:      return f"{sh:.0%}"
-                    elif sh >= 0.01:   return f"{sh:.1%}"
-                    elif sh >= 0.001:  return f"{sh:.2%}"
-                    else:              return f"{sh:.3%}"
 
                 fig, ax = plt.subplots(figsize=(7.2*chart_scale, 5.2*chart_scale))
                 wedges, texts, autotexts = ax.pie(
@@ -671,75 +628,63 @@ if uploaded_file is not None:
                     autopct=_autopct, pctdistance=0.72,
                     labeldistance=1.10,
                     wedgeprops=dict(linewidth=0.9, edgecolor="white"),
-                    textprops=dict(fontsize=int(13*chart_scale))
+                    textprops=dict(fontsize=int(10*chart_scale))
                 )
-
                 legend_labels = [f"{lab}, {_fmt_frac(sh)}" for lab, sh in zip(labels, fracs)]
                 ax.legend(wedges, legend_labels, title="Class",
                         loc="center left", bbox_to_anchor=(1.02, 0.5),
-                        frameon=False, fontsize=int(13*chart_scale),
+                        frameon=False, fontsize=int(10*chart_scale),
                         title_fontsize=int(11*chart_scale))
                 ax.axis("equal")
-                ax.set_title(title, fontsize=int(15*chart_scale), pad=10)
+                ax.set_title(title, fontsize=int(13*chart_scale), pad=10)
 
                 st.pyplot(fig)
                 st.download_button(
-                    "⬇️ Download PNG",
-                    _save_fig_as_png_bytes(fig, dpi=int(220*chart_scale)),
-                    file_name=f"{title.replace(' · ','_').replace(' ','_')}.png",
-                    mime="image/png"
-                )
-                plt.close(fig)
-
-        # 三列：L1 | L2(仅地外) | L3(上OC，下CC)
-        col1, col2, col3 = st.columns(3, gap="large")
-        _pie_full(col1, df_l1,     "Level1 · class share", total_n=N)
-        _pie_full(col2, df_l2_ext, "Level2 · class share (Extraterrestrial only)", total_n=N_L2)
-        _pie_full(col3, df_l3_oc, "Level3-OC · class share", total_n=N_L3_OC)
-        col3.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-        _pie_full(col3, df_l3_cc, "Level3-CC · class share", total_n=N_L3_CC)
-
-        
-
-        # -------------------- ☄️ Class frequency (bars)（修正版：按分组分母） --------------------
-        st.subheader("☄️Class frequency (bars)")
-
-        def _bar_from_df(col, df: pd.DataFrame, title: str, total_n: int):
-            with col:
-                if df.empty or int(df["count"].sum()) == 0 or total_n == 0:
-                    st.info("No data")
-                    return
-                fig, ax = plt.subplots(figsize=(9.5*chart_scale, 5.6*chart_scale))
-                x = df["Class"].astype(str).tolist()
-                y = df["count"].astype(int).tolist()
-                ax.bar(range(len(x)), y, edgecolor="black",
-                    color=[PALETTE[i % len(PALETTE)] for i in range(len(x))])
-                ax.set_xticks(range(len(x)))
-                ax.set_xticklabels(x, rotation=28, ha="right", fontsize=int(10*chart_scale))
-                ax.set_ylabel("Count", fontsize=int(11*chart_scale))
-                ax.set_title(title, fontsize=int(15*chart_scale))
-
-                ymax = max(max(y), 1)
-                ax.set_ylim(0, ymax * 1.18)
-                for i, yi in enumerate(y):
-                    ax.text(i, yi + ymax * 0.02, f"{yi}/{total_n}",
-                            ha="center", va="bottom", fontsize=int(10*chart_scale))
-
-                plt.subplots_adjust(left=0.10, right=0.98, top=0.92, bottom=0.28)
-                st.pyplot(fig)
-                st.download_button(
-                    "⬇️ Download PNG",
-                    _save_fig_as_png_bytes(fig, dpi=int(220*chart_scale)),
-                    file_name=f"{title.replace(' · ','_').replace(' ','_')}.png",
-                    mime="image/png"
+                    "⬇️ Download PNG", _save_fig_as_png_bytes(fig, dpi=int(220*chart_scale)),
+                    file_name=f"{title.replace(' · ','_').replace(' ','_')}.png", mime="image/png"
                 )
                 plt.close(fig)
 
         cols_pie = st.columns(4, gap="large")
-        _pie_full(cols_pie[0], df_l1,    "Level1 · class share",                           total_n=int(df_l1["count"].sum()))
-        _pie_full(cols_pie[1], df_l2,    "Level2 · class share (Extraterrestrial only)",   total_n=N_L2)
-        _pie_full(cols_pie[2], df_l3_oc, "Level3-OC · class share",                        total_n=N_L3_OC)
-        _pie_full(cols_pie[3], df_l3_cc, "Level3-CC · class share",                        total_n=N_L3_CC)
+        _pie_full(cols_pie[0], df_l1,    "Level1 · class share",                         total_n=N_L1)
+        _pie_full(cols_pie[1], df_l2,    "Level2 · class share (Extraterrestrial only)", total_n=N_L2)
+        _pie_full(cols_pie[2], df_l3_oc, "Level3-OC · class share",                      total_n=N_L3_OC)
+        _pie_full(cols_pie[3], df_l3_cc, "Level3-CC · class share",                      total_n=N_L3_CC)
+
+        # ==== 4) 频率柱状图（四列：L1 / L2(仅路由) / L3-OC / L3-CC） ====
+        st.subheader("☄️ Class frequency (bars)")
+
+        def _bar_from_df(col, df: pd.DataFrame, title: str, total_n: int):
+            with col:
+                if df.empty or int(df["count"].sum()) == 0:
+                    st.info("No data"); return
+                fig, ax = plt.subplots(figsize=(9.5*chart_scale, 5.6*chart_scale))
+                x = df["Class"].astype(str).tolist()
+                y = df["count"].astype(int).tolist()
+                ax.bar(range(len(x)), y, edgecolor="black", color=[PALETTE[i % len(PALETTE)] for i in range(len(x))])
+                ax.set_xticks(range(len(x)))
+                ax.set_xticklabels(x, rotation=28, ha="right", fontsize=int(10*chart_scale))
+                ax.set_ylabel("Count", fontsize=int(11*chart_scale))
+                ax.set_title(title, fontsize=int(13*chart_scale))
+
+                ymax = max(max(y), 1)
+                ax.set_ylim(0, ymax * 1.18)
+                for i, yi in enumerate(y):
+                    ax.text(i, yi + ymax * 0.02, f"{yi}/{total_n}", ha="center", va="bottom", fontsize=int(10*chart_scale))
+
+                plt.subplots_adjust(left=0.10, right=0.98, top=0.92, bottom=0.28)
+                st.pyplot(fig)
+                st.download_button(
+                    "⬇️ Download PNG", _save_fig_as_png_bytes(fig, dpi=int(220*chart_scale)),
+                    file_name=f"{title.replace(' · ','_').replace(' ','_')}.png", mime="image/png"
+                )
+                plt.close(fig)
+
+        cols_bar = st.columns(4, gap="large")
+        _bar_from_df(cols_bar[0], df_l1.sort_values(["count","Class"], ascending=[False,True]), "Level1 · frequency",                         total_n=N_L1)
+        _bar_from_df(cols_bar[1], df_l2.sort_values(["count","Class"], ascending=[False,True]), "Level2 · frequency (Extraterrestrial only)", total_n=N_L2)
+        _bar_from_df(cols_bar[2], df_l3_oc.sort_values(["count","Class"], ascending=[False,True]), "Level3-OC · frequency",                     total_n=N_L3_OC)
+        _bar_from_df(cols_bar[3], df_l3_cc.sort_values(["count","Class"], ascending=[False,True]), "Level3-CC · frequency",                     total_n=N_L3_CC)
 
 
 
