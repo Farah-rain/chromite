@@ -457,11 +457,14 @@ if uploaded_file is not None:
                 sizes  = df_plot["count"].astype(int).to_numpy()
                 fracs  = sizes / sizes.sum()
                 fig, ax = plt.subplots(figsize=(5.2, 4.6), constrained_layout=True)
-                wedges, _, _ = ax.pie(
+                
+                res = ax.pie(
                     sizes, startangle=90, counterclock=False,
                     wedgeprops=dict(width=0.35, linewidth=0.8, edgecolor="white"),
                     labels=None, autopct=None
                 )
+                wedges = res[0]   # 第 0 个永远是扇形 patch 列表
+
                 for w, lab, f in zip(wedges, labels, fracs):
                     ang = (w.theta2 + w.theta1) / 2.0
                     x, y = np.cos(np.deg2rad(ang)), np.sin(np.deg2rad(ang))
