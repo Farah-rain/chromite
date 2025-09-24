@@ -552,93 +552,151 @@ if uploaded_file is not None:
             st.dataframe(pd.DataFrame(rows))
 
         # -------------------- 📊 Summary：三组并列（level1/2/3） --------------------
-        st.subheader("📊 Summary (level1/2/3 side-by-side)")
+        # -------------------- 📊 Summary（三个纵列并排：Level1/2/3） --------------------
+st.subheader("📊 Summary (Level1 / Level2 / Level3)")
 
-        def _vc_df(labels: np.ndarray, total_n: int) -> pd.DataFrame:
-            s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
-            vc = s.value_counts(dropna=False)
-            df = vc.rename_axis("Class").reset_index(name="count")
-            df["share"] = (df["count"] / float(total_n)).round(3)
-            return df[["Class", "count", "share"]].sort_values(["count", "Class"], ascending=[False, True], ignore_index=True)
+def _vc_df(labels: np.ndarray, total_n: int) -> pd.DataFrame:
+    s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
+    vc = s.value_counts(dropna=False)
+    df = vc.rename_axis("Class").reset_index(name="count")
+    df["share"] = (df["count"] / float(total_n)).round(3)
+    return df[["Class", "count", "share"]].sort_values(["count", "Class"], ascending=[False, True], ignore_index=True)
 
-        # Level1：地外/地球
-        l1_series = pd.Series(pred1_label, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
-        ext_cnt = int(l1_series.str.lower().eq("extraterrestrial").sum())
-        ter_cnt = int(len(l1_series) - ext_cnt)
-        df_l1 = pd.DataFrame({"Class": ["地外", "地球"], "count": [ext_cnt, ter_cnt]})
-        df_l1["share"] = (df_l1["count"] / float(N)).round(3)
+# 用真实类别名做统计（不做“地球/地外”映射）
+df_l1 = _vc_df(pred1_label, N)
+df_l2 = _vc_df(pred2_label, N)
+df_l3 = _vc_df(pred3_label, N) if routed_to_L3 else pd.DataFrame({"Class": ["(not routed)"], "count": [0], "share": [0.0]})
 
-        # Level2/Level3
-        df_l2 = _vc_df(pred2_label, N)
-        df_l3 = _vc_df(pred3_label, N) if routed_to_L3 else pd.DataFrame({"Class": ["(未路由到 Level3)"], "count": [0], "share": [0.0]})
+# 三个表并排展示（各自独立的纵列）
+cols_sum = st.columns(3, gap="large")
+with cols_sum[0]:
+    st.markdown("##### Level 1")
+    st.dataframe(df_l1, use_container_width=True)
+with cols_sum[1]:
+    st.markdown("##### Level 2")
+    st.dataframe(df_l2, use_container_width=True)
+with cols_sum[2]:
+    st.markdown("##### Level 3")
+    st.dataframe(df_l3, use_container_width=True)
 
-        # 并列表（MultiIndex列）
-        def _mk_wide(df, lvl_name):
-            w = df.set_index("Class")[["count", "share"]]
-            w.columns = pd.MultiIndex.from_product([[lvl_name], w.columns])
-            return w
-        idx_union = pd.Index(sorted(set(
-            _mk_wide(df_l1, "level1").index.tolist() +
-            _mk_wide(df_l2, "level2").index.tolist() +
-            _mk_wide(df_l3, "level3").index.tolist()
-        )))
-        big_table = pd.concat([
-            _mk_wide(df_l1, "level1").reindex(idx_union),
-            _mk_wide(df_l2, "level2").reindex(idx_union),
-            _mk_wide(df_l3, "level3").reindex(idx_union)
-        ], axis=1).fillna("")
-        st.dataframe(big_table, use_container_width=True)
-
-        # 饼图（3张）
-        cols_pie = st.columns(3, gap="large")
-        def _pie(col, df, title):
-            with col:
-                fig, ax = plt.subplots(figsize=(3.6, 3.6))
-                vals = df["count"].to_numpy().astype(int); labels = df["Class"].astype(str).tolist()
-                if vals.sum() == 0:
-                    ax.text(0.5, 0.5, "No data", ha="center", va="center"); ax.axis("off")
-                else:
-                    ax.pie(vals, labels=labels, autopct="%1.0f%%", startangle=90)
-                    ax.axis("equal"); ax.set_title(title)
-                st.pyplot(fig); plt.close(fig)
-        _pie(cols_pie[0], df_l1, "Level1 · 地外 vs 地球")
-        _pie(cols_pie[1], df_l2, "Level2 · Class share")
-        _pie(cols_pie[2], df_l3, "Level3 · Class share")
-
-        # 类别频率柱状图（3张）
-        st.subheader("📉 Class Frequency Histogram (one per level)")
-        cols_bar = st.columns(3, gap="large")
-        def _bar(col, df, title):
-            with col:
-                fig, ax = plt.subplots(figsize=(5.0, 3.4))
-                x = df["Class"].astype(str).tolist(); y = df["count"].astype(int).tolist()
-                ax.bar(range(len(x)), y, edgecolor="black")
-                ax.set_xticks(range(len(x))); ax.set_xticklabels(x, rotation=45, ha="right")
-                ax.set_ylabel("count"); ax.set_title(title)
-                st.pyplot(fig); plt.close(fig)
-        _bar(cols_bar[0], df_l1, "Level1 · 地外 vs 地球")
-        _bar(cols_bar[1], df_l2, "Level2 · by Class")
-        _bar(cols_bar[2], df_l3, "Level3 · by Class")
-
-        # -------------------- 结果下载 --------------------
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df_display.to_excel(writer, index=False, sheet_name='Prediction')
-            big_table.to_excel(writer, sheet_name="Summary_table")
-            df_l1.assign(Level="Level1")[["Level","Class","count","share"]].to_excel(writer, index=False, sheet_name="Summary_L1")
-            df_l2.assign(Level="Level2")[["Level","Class","count","share"]].to_excel(writer, index=False, sheet_name="Summary_L2")
-            if routed_to_L3:
-                df_l3.assign(Level="Level3")[["Level","Class","count","share"]].to_excel(writer, index=False, sheet_name="Summary_L3")
-
-        st.download_button(
-            label="📥 Download Predictions (Excel)",
-            data=output.getvalue(),
-            file_name="prediction_results.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+# ---------- 饼图（自动引线 + 图例） ----------
+def _pie_from_df(col, df: pd.DataFrame, title: str):
+    with col:
+        labels = df["Class"].astype(str).tolist()
+        sizes = df["count"].astype(int).to_numpy()
+        fig, ax = plt.subplots(figsize=(3.8, 3.8))
+        if sizes.sum() == 0:
+            ax.text(0.5, 0.5, "No data", ha="center", va="center")
+            ax.axis("off")
+            st.pyplot(fig); plt.close(fig); return
+        # 若存在小块（<6%），把标签放到外侧并画引线
+        fracs = sizes / sizes.sum()
+        small = bool((fracs < 0.06).any())
+        labeldist = 1.15 if small else 1.05
+        pctdist   = 0.75 if small else 0.6
+        wedges, texts, autotexts = ax.pie(
+            sizes,
+            labels=labels,
+            autopct="%1.0f%%",
+            startangle=90,
+            counterclock=False,
+            labeldistance=labeldist,
+            pctdistance=pctdist
         )
+        # 图例放右侧
+        ax.legend(wedges, labels, title="Class", loc="center left",
+                  bbox_to_anchor=(1.02, 0.5), frameon=False)
+        ax.axis("equal")
+        ax.set_title(title)
+        st.pyplot(fig); plt.close(fig)
 
+st.markdown("##### Class share (pie)")
+cols_pie = st.columns(3, gap="large")
+_pie_from_df(cols_pie[0], df_l1, "Level1 · class share")
+_pie_from_df(cols_pie[1], df_l2, "Level2 · class share")
+_pie_from_df(cols_pie[2], df_l3, "Level3 · class share")
+
+# ---------- 三个频率“直方图”（离散类→柱状图） ----------
+st.subheader("📉 Class Frequency Histogram (per level)")
+def _bar_from_df(col, df: pd.DataFrame, title: str):
+    with col:
+        fig, ax = plt.subplots(figsize=(5.2, 3.6))
+        x = df["Class"].astype(str).tolist()
+        y = df["count"].astype(int).tolist()
+        ax.bar(range(len(x)), y, edgecolor="black")
+        ax.set_xticks(range(len(x))); ax.set_xticklabels(x, rotation=45, ha="right")
+        ax.set_ylabel("count"); ax.set_title(title)
+        st.pyplot(fig); plt.close(fig)
+
+cols_hist = st.columns(3, gap="large")
+_ bar_from_df = _bar_from_df  # 仅为对齐视觉的别名，可删
+_bar_from_df(cols_hist[0], df_l1, "Level1 · frequency")
+_bar_from_df(cols_hist[1], df_l2, "Level2 · frequency")
+_bar_from_df(cols_hist[2], df_l3, "Level3 · frequency")
+
+# -------------------- 🧩 Add to Training Pool（移动到这里，直方图之后、下载之前） --------------------
+st.subheader("🧩 Add Predictions to Training Pool?")
+if st.checkbox("✅ Confirm to append these samples to the training pool for future retraining"):
+    df_save = df_input.copy()
+    df_save["Level1"] = pred1_label
+    df_save["Level2"] = pred2_label
+    if routed_to_L3:
+        df_save["Level3"] = pred3_label
+
+    local_path = "training_pool.csv"
+    header_needed = not os.path.exists(local_path)
+    df_save.to_csv(local_path, mode="a", header=header_needed, index=False, encoding="utf-8-sig")
+    st.success("✅ Samples appended to local training pool.")
+    try:
+        GITHUB_TOKEN = (
+            st.secrets.get("gh_token")
+            or (st.secrets.get("github", {}) or {}).get("token")
+        )
+        repo_owner = st.secrets.get("gh_repo_owner", "Farah-rain")
+        repo_name  = st.secrets.get("gh_repo_name",  "chromite")
+        dst_path   = st.secrets.get("gh_dst_path",   "training_pool.csv")
+        branch     = st.secrets.get("gh_branch",     "main")
+        if not GITHUB_TOKEN:
+            st.info("GitHub token not configured (gh_token or github.token). Saved locally only.")
+        else:
+            with open(local_path, "rb") as f:
+                content_b64 = base64.b64encode(f.read()).decode("utf-8")
+            url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{dst_path}"
+            headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+            r = requests.get(url, headers=headers)
+            sha = r.json().get("sha") if r.status_code == 200 else None
+            payload = {"message": "update training pool", "content": content_b64, "branch": branch}
+            if sha: payload["sha"] = sha
+            put_resp = requests.put(url, headers=headers, json=payload)
+            if 200 <= put_resp.status_code < 300:
+                st.success("✅ Synced to GitHub repository.")
+            else:
+                st.warning(f"⚠️ GitHub sync failed ({put_resp.status_code}): {put_resp.text[:300]}")
     except Exception as e:
-        st.error("Error while processing the uploaded file.")
-        st.exception(e)
-else:
-    st.info("Please upload a data file to proceed.")
+        st.error(f"❌ GitHub sync error: {e}")
+
+# -------------------- 导出：Prediction + 三个纵列的 Summary（并排写到同一张表），另附各层明细 --------------------
+output = BytesIO()
+with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+    # 明细
+    df_display.to_excel(writer, index=False, sheet_name='Prediction')
+    # 把三个纵列并排写到一张工作表（你草图那种布局）
+    ws = "Summary_3cols"
+    df_l1.to_excel(writer, index=False, sheet_name=ws, startrow=1, startcol=0)
+    df_l2.to_excel(writer, index=False, sheet_name=ws, startrow=1, startcol=5)
+    df_l3.to_excel(writer, index=False, sheet_name=ws, startrow=1, startcol=10)
+    # 顶部标题
+    wb = writer.book; ws_obj = writer.sheets[ws]
+    ws_obj.write(0, 0, "level1"); ws_obj.write(0, 5, "level2"); ws_obj.write(0, 10, "level3")
+    # 另外各层各一张明细
+    df_l1.assign(Level="Level1")[["Level","Class","count","share"]].to_excel(writer, index=False, sheet_name="Summary_L1")
+    df_l2.assign(Level="Level2")[["Level","Class","count","share"]].to_excel(writer, index=False, sheet_name="Summary_L2")
+    if routed_to_L3:
+        df_l3.assign(Level="Level3")[["Level","Class","count","share"]].to_excel(writer, index=False, sheet_name="Summary_L3")
+
+st.download_button(
+    label="📥 Download Predictions (Excel)",
+    data=output.getvalue(),
+    file_name="prediction_results.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
