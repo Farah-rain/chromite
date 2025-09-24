@@ -610,72 +610,118 @@ if uploaded_file is not None:
 
         # -------------------- 📊 分类汇总表（Level1/2/3） --------------------
         
-        st.subheader("📊 Vertical Summary")
+        # -------------------- 📊 Summary（3列并排，每列表格+饼图） --------------------
+        st.subheader("📊 Summary by Level (side-by-side)")
 
         def _vc_df(labels: np.ndarray, total_n: int) -> pd.DataFrame:
             s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
             vc = s.value_counts(dropna=False)
-            df = (
-                vc.rename_axis("Class")
-                  .reset_index(name="Count")
-            )
+            df = vc.rename_axis("Class").reset_index(name="Count")
             df["Share"] = (df["Count"] / float(total_n)).round(3)
-            df = df[["Class", "Count", "Share"]]
-            return df
+            # 列顺序：Level 导出时再补；此处表内仅 Class/Count/Share
+            return df[["Class", "Count", "Share"]]
 
-        # —— Level1：按“地外 vs 地球”二分类 + 饼图 ——
-        l1_raw = pd.Series(pred1_label, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
-        is_ext = l1_raw.str.lower().eq("extraterrestrial")
-        l1_ext = int(is_ext.sum())
-        l1_earth = int(len(l1_raw) - l1_ext)
-        df_l1 = pd.DataFrame({
-            "Class": ["Extraterrestrial", "Terrestrial"],
-            "Count": [l1_ext, l1_earth],
-        })
-        df_l1["Share"] = (df_l1["Count"] / float(N)).round(3)
-        st.markdown("##### Level 1")
-        col_l1_t, col_l1_fig = st.columns([2, 1], gap="large")
-        with col_l1_t:
-            st.dataframe(df_l1, use_container_width=True)
-        with col_l1_fig:
-            fig, ax = plt.subplots(figsize=(3.6, 3.6))
-            ax.pie(df_l1["Count"].to_numpy(), labels=df_l1["Class"].tolist(), autopct="%1.0f%%", startangle=90)
+        def _collapse_top_k_for_pie(df: pd.DataFrame, k: int = 8) -> pd.DataFrame:
+            """避免饼图切片过多；>k 时把尾部汇为 Others。"""
+            if len(df) <= k:
+                return df.copy()
+            head = df.sort_values(["Count", "Class"], ascending=[False, True]).head(k - 1).copy()
+            tail = df.drop(head.index)
+            others = pd.DataFrame([{
+                "Class": "Others",
+                "Count": int(tail["Count"].sum()),
+                "Share": round(float(tail["Count"].sum()) / float(N), 3)
+            }])
+            return pd.concat([head, others], ignore_index=True)
+
+        def _pie_from_df(ax, df: pd.DataFrame, title: str):
+            labels = df["Class"].astype(str).tolist()
+            sizes = df["Count"].astype(int).to_numpy()
+            if sizes.sum() == 0:
+                ax.text(0.5, 0.5, "No data", ha="center", va="center"); ax.axis("off"); return
+            ax.pie(
+                sizes, labels=labels, autopct="%1.0f%%", startangle=90
+            )
             ax.axis("equal")
-            ax.set_title("Level1 · Earth vs Extraterrestrial")
-            st.pyplot(fig); plt.close(fig)
+            ax.set_title(title)
 
-        # —— Level2：竖排各类计数/占比（含 Unclassified） ——
-        st.markdown("##### Level 2")
+        # ===== Level1：Earth vs Extraterrestrial（表 + 饼图） =====
+        l1_series = pd.Series(pred1_label, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
+        ext_cnt = int(l1_series.str.lower().eq("extraterrestrial").sum())
+        ter_cnt = int(len(l1_series) - ext_cnt)
+        df_l1 = pd.DataFrame({"Class": ["Extraterrestrial", "Terrestrial"],
+                              "Count": [ext_cnt, ter_cnt]})
+        df_l1["Share"] = (df_l1["Count"] / float(N)).round(3)
+
+        # ===== Level2/Level3：按类统计 =====
         df_l2 = _vc_df(pred2_label, N).sort_values(["Count", "Class"], ascending=[False, True], ignore_index=True)
-        st.dataframe(df_l2, use_container_width=True)
-
-        # —— Level3：仅在路由到 L3 时展示竖排表 ——
         if routed_to_L3:
-            st.markdown("##### Level 3")
             df_l3 = _vc_df(pred3_label, N).sort_values(["Count", "Class"], ascending=[False, True], ignore_index=True)
-            st.dataframe(df_l3, use_container_width=True)
         else:
-            df_l3 = None  # 便于导出
+            df_l3 = pd.DataFrame({"Class": ["(not routed)"], "Count": [0], "Share": [0.0]})
 
-        # -------------------- 📉 频率直方图（置信度分布） --------------------
-        st.subheader("📉 Frequency Histogram")
-        # 这里选 Level1 的最大概率分布；也可按需换成 p2max/p3max
-        fig_h, ax_h = plt.subplots(figsize=(6.5, 3.6))
-        ax_h.hist(np.asarray(p1max).astype(float), bins=12, edgecolor="black")
-        ax_h.set_xlabel("Level1 max probability (p_max)")
-        ax_h.set_ylabel("Frequency")
-        ax_h.set_title("Confidence distribution · Level1")
-        st.pyplot(fig_h); plt.close(fig_h)
+        cols_sum = st.columns(3, gap="large")
 
-        # -------------------- 结果下载（Prediction + 竖排三表） --------------------
+        with cols_sum[0]:
+            st.markdown("##### Level 1")
+            st.dataframe(df_l1, use_container_width=True)
+            fig1, ax1 = plt.subplots(figsize=(3.6, 3.6))
+            _pie_from_df(ax1, df_l1, "Level1 · Earth vs Extraterrestrial")
+            st.pyplot(fig1); plt.close(fig1)
+
+        with cols_sum[1]:
+            st.markdown("##### Level 2")
+            st.dataframe(df_l2, use_container_width=True)
+            fig2, ax2 = plt.subplots(figsize=(3.6, 3.6))
+            _pie_from_df(ax2, _collapse_top_k_for_pie(df_l2), "Level2 · Class share")
+            st.pyplot(fig2); plt.close(fig2)
+
+        with cols_sum[2]:
+            st.markdown("##### Level 3")
+            st.dataframe(df_l3, use_container_width=True)
+            fig3, ax3 = plt.subplots(figsize=(3.6, 3.6))
+            _pie_from_df(ax3, _collapse_top_k_for_pie(df_l3), "Level3 · Class share")
+            st.pyplot(fig3); plt.close(fig3)
+
+        # -------------------- 📉 类别“频率直方图”（离散类 → 柱状图） --------------------
+        st.subheader("📉 Class Frequency Histogram")
+
+        cols_hist = st.columns(3, gap="large")
+
+        def _bar_from_df(col, df: pd.DataFrame, title: str):
+            with col:
+                fig, ax = plt.subplots(figsize=(5.2, 3.4))
+                x = df["Class"].astype(str).tolist()
+                y = df["Count"].astype(int).tolist()
+                ax.bar(range(len(x)), y, edgecolor="black")
+                ax.set_xticks(range(len(x)))
+                ax.set_xticklabels(x, rotation=45, ha="right")
+                ax.set_ylabel("Count")
+                ax.set_title(title)
+                st.pyplot(fig); plt.close(fig)
+
+        _bar_from_df(cols_hist[0], df_l1, "Level1 · Earth vs Extraterrestrial")
+        _bar_from_df(cols_hist[1], df_l2, "Level2 · by Class")
+        if routed_to_L3 and not (len(df_l3) == 1 and df_l3.iloc[0, 0] == "(not routed)"):
+            _bar_from_df(cols_hist[2], df_l3, "Level3 · by Class")
+        else:
+            with cols_hist[2]:
+                st.info("No samples routed to Level3.")
+
+        # -------------------- 结果下载（Prediction + 三个 Summary 表） --------------------
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_display.to_excel(writer, index=False, sheet_name='Prediction')
-            # 导出竖排 Summary：L1/L2/L3 各一张表
-            df_l1.to_excel(writer, index=False, sheet_name='Summary_L1')
-            df_l2.to_excel(writer, index=False, sheet_name='Summary_L2')
-            if df_l3 is not None:
-                df_l3.to_excel(writer, index=False, sheet_name='Summary_L3')
+
+            df_l1_export = df_l1.copy(); df_l1_export.insert(0, "Level", "Level1")
+            df_l2_export = df_l2.copy(); df_l2_export.insert(0, "Level", "Level2")
+            df_l1_export.to_excel(writer, index=False, sheet_name='Summary_L1')
+            df_l2_export.to_excel(writer, index=False, sheet_name='Summary_L2')
+
+            if routed_to_L3:
+                df_l3_export = df_l3.copy(); df_l3_export.insert(0, "Level", "Level3")
+                df_l3_export.to_excel(writer, index=False, sheet_name='Summary_L3')
+
         st.download_button(
             label="📥 Download Predictions (Excel)",
             data=output.getvalue(),
@@ -683,10 +729,3 @@ if uploaded_file is not None:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-
-
-    except Exception as e:
-        st.error("Error while processing the uploaded file.")
-        st.exception(e)
-else:
-    st.info("Please upload a data file to proceed.")
