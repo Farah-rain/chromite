@@ -1,4 +1,4 @@
-# streamlit_app.py  —— Chromite Extraterrestrial Origin Classifier (integrated full script)
+# streamlit_app.py — Chromite Extraterrestrial Origin Classifier (fully-integrated)
 
 import streamlit as st
 import pandas as pd
@@ -13,20 +13,17 @@ from itertools import chain
 st.set_page_config(page_title="Chromite Extraterrestrial Origin Classifier", layout="wide")
 st.title("✨ Chromite Extraterrestrial Origin Classifier")
 
-# -------------------- 常量与映射（与训练一致） --------------------
+# -------------------- 常量与映射 --------------------
 ABSTAIN_LABEL = "Unclassified"
 THRESHOLDS = {"Level2": 0.90, "Level3": 0.90}
 MARGINS_LEVEL2 = {"OC": 0.04}
+valid_lvl3 = {"OC": {"EOC-H", "EOC-L", "EOC-LL", "UOC"},
+              "CC": {"CM-CO", "CR-clan", "CV"}}
 
-valid_lvl3 = {
-    "OC": {"EOC-H", "EOC-L", "EOC-LL", "UOC"},
-    "CC": {"CM-CO", "CR-clan", "CV"}
-}
-
-# 稳定柔和调色板（用于所有饼图/柱状图）
+# 柔和稳定配色
 PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors))
 
-# -------------------- 概率校准 & 类阈值工具 --------------------
+# -------------------- 概率校准 & 阈值 --------------------
 def _load_joblib_pair(primary_path, fallback_path):
     p = primary_path if os.path.exists(primary_path) else fallback_path
     return joblib.load(p) if os.path.exists(p) else None
@@ -48,13 +45,7 @@ def apply_calibrators(proba: np.ndarray, classes: np.ndarray, calibrators: dict 
     P = (P + eps) / np.maximum(row_sum + eps * P.shape[1], eps)
     return P
 
-def predict_with_classwise_thresholds(
-    proba_cal: np.ndarray,
-    classes: np.ndarray,
-    thr_dict: dict | None,
-    unknown_label: str,
-    margins: dict | None = None
-):
+def predict_with_classwise_thresholds(proba_cal, classes, thr_dict, unknown_label, margins=None):
     C = proba_cal.shape[1]
     thr_dict = thr_dict or {}
     preds, pmax = [], []
@@ -67,18 +58,15 @@ def predict_with_classwise_thresholds(
         best_score = row[j_best]
         order = np.argsort(row)[::-1]
         j_second = order[1] if C >= 2 else j_best
-        gap = best_score - row[j_second]
         ok_margin = True
         if margins is not None:
             m = float(margins.get(str(classes[j_best]), 0.0))
-            ok_margin = (gap >= m)
-        if ok_margin:
-            preds.append(classes[j_best]); pmax.append(best_score)
-        else:
-            preds.append(unknown_label); pmax.append(best_score)
+            ok_margin = (best_score - row[j_second] >= m)
+        preds.append(classes[j_best] if ok_margin else unknown_label)
+        pmax.append(best_score)
     return np.array(preds, dtype=object), np.array(pmax, dtype=float)
 
-# -------------------- 其他工具函数 --------------------
+# -------------------- 其他工具 --------------------
 def apply_threshold(proba: np.ndarray, classes: np.ndarray, thr: float):
     max_idx = np.argmax(proba, axis=1)
     max_val = proba[np.arange(proba.shape[0]), max_idx]
@@ -162,7 +150,7 @@ def preprocess_uploaded_data(df):
 def to_numeric_df(df):
     return df.apply(pd.to_numeric, errors="coerce")
 
-# ========= 单层多数票 + 平均概率（含 Unclassified & 未路由行）=========
+# ========= 多数票 + 平均概率 =========
 def level_group_stats(labels, classes, prob_by_class, p_max=None, p_unknown=None, fill_unknown_for_empty=True):
     N = len(labels)
     s = pd.Series(labels, dtype="object").fillna("")
@@ -177,13 +165,9 @@ def level_group_stats(labels, classes, prob_by_class, p_max=None, p_unknown=None
             if prob_by_class is not None and isinstance(prob_by_class, np.ndarray):
                 prob_by_class = np.where(
                     np.repeat(empty_mask.values[:, None], prob_by_class.shape[1], axis=1),
-                    0.0,
-                    np.nan_to_num(prob_by_class, nan=0.0)
-                )
-
+                    0.0, np.nan_to_num(prob_by_class, nan=0.0))
     counts = s.value_counts()
     candidates = list(counts.index)
-
     means = {}
     for lab in candidates:
         if lab == ABSTAIN_LABEL:
@@ -197,20 +181,13 @@ def level_group_stats(labels, classes, prob_by_class, p_max=None, p_unknown=None
                 means[lab] = 0.0
             else:
                 col = np.where(classes == lab)[0]
-                if len(col) == 0:
-                    means[lab] = 0.0
-                else:
-                    arr = np.nan_to_num(prob_by_class[:, col[0]], nan=0.0)
-                    means[lab] = float(np.mean(arr))
-
+                means[lab] = float(np.mean(np.nan_to_num(prob_by_class[:, col[0]], nan=0.0))) if len(col) else 0.0
     max_count = counts.max()
     top_cands = [lab for lab, c in counts.items() if c == max_count]
     top_label = max(top_cands, key=lambda lab: means.get(lab, 0.0))
-    top_share_str = f"{int(counts[top_label])}/{N}"
-    top_mean_prob = means.get(top_label, 0.0)
-    return top_label, top_share_str, top_mean_prob
+    return top_label, f"{int(counts[top_label])}/{N}", means.get(top_label, 0.0)
 
-# -------------------- 侧边栏：加载模型 --------------------
+# -------------------- 侧边栏加载 --------------------
 with st.sidebar:
     st.subheader("Model Loading")
     try:
@@ -221,19 +198,19 @@ with st.sidebar:
         st.error("Failed to load models or feature columns.")
         st.exception(e)
 
-# 载入校准器 & 类阈值（若存在）
 calib_L2, thr_L2 = load_calibrator_and_threshold("Level2")
 calib_L3, thr_L3 = load_calibrator_and_threshold("Level3")
 
-# -------------------- 上传文件并处理 --------------------
+# -------------------- 上传与主流程 --------------------
 uploaded_file = st.file_uploader("Upload an Excel or CSV file (must include all feature columns).", type=["xlsx", "csv"])
 
 if uploaded_file is not None:
     try:
-        df_uploaded = pd.read_csv(uploaded_file) if uploaded_file.name.lower().endswith(".csv") else pd.read_excel(uploaded_file)
+        df_uploaded = (pd.read_csv(uploaded_file) if uploaded_file.name.lower().endswith(".csv")
+                       else pd.read_excel(uploaded_file))
         df_uploaded = preprocess_uploaded_data(df_uploaded)
 
-        # 对齐特征列
+        # 对齐特征
         df_input = df_uploaded.copy()
         for col in feature_list:
             if col not in df_input.columns: df_input[col] = np.nan
@@ -241,21 +218,20 @@ if uploaded_file is not None:
 
         N = len(df_input)
 
-        # ========= Level 1 =========
+        # ===== Level 1 =====
         prob1 = model_lvl1.predict_proba(df_input)
         classes1 = model_lvl1.classes_.astype(str)
         pred1_idx = np.argmax(prob1, axis=1)
         pred1_label = classes1[pred1_idx]
         p1max = prob1[np.arange(N), pred1_idx]
 
-        # ========= Level 2（只对 L1=Extraterrestrial）=========
+        # ===== Level 2 （仅 Extraterrestrial 路由）=====
         _pred1_norm = pd.Series(pred1_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
         mask_lvl2 = (_pred1_norm == "extraterrestrial").to_numpy()
 
         prob2_raw = np.full((N, len(model_lvl2.classes_)), np.nan)
         pred2_label = np.full(N, "", dtype=object)
-        p2max = np.full(N, np.nan)
-        p2unk = np.full(N, np.nan)
+        p2max = np.full(N, np.nan); p2unk = np.full(N, np.nan)
         classes2 = model_lvl2.classes_.astype(str)
 
         if mask_lvl2.any():
@@ -268,7 +244,6 @@ if uploaded_file is not None:
                 )
             else:
                 pred2_masked, p2max_masked = apply_threshold(pr2_cal, classes2, THRESHOLDS["Level2"])
-
             prob2_raw[mask_lvl2] = pr2
             pred2_label[mask_lvl2] = pred2_masked
             p2max[mask_lvl2] = p2max_masked
@@ -280,7 +255,7 @@ if uploaded_file is not None:
             pred2_label[empty2.values] = ABSTAIN_LABEL
             p2unk[empty2.values] = 1.0
 
-        # ========= Level 3（父子约束）=========
+        # ===== Level 3 （父子约束）=====
         _pred2_norm = pd.Series(pred2_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
         mask_lvl3 = _pred2_norm.isin(["oc", "cc"]).to_numpy()
         routed_to_L3 = bool(mask_lvl3.any())
@@ -290,13 +265,11 @@ if uploaded_file is not None:
         prob3_raw = np.full((N, C3), np.nan)
         prob3_post = np.zeros((N, C3))
         pred3_label = np.full(N, "", dtype=object)
-        p3max = np.full(N, np.nan)
-        p3unk = np.full(N, np.nan)
+        p3max = np.full(N, np.nan); p3unk = np.full(N, np.nan)
 
         if routed_to_L3:
             all_pr3 = model_lvl3.predict_proba(df_input[mask_lvl3])
             all_pr3_cal = apply_calibrators(all_pr3, classes3, calib_L3)
-
             idxs = np.where(mask_lvl3)[0]
             prob3_raw[mask_lvl3] = all_pr3
             for row_i, i_global in enumerate(idxs):
@@ -310,11 +283,8 @@ if uploaded_file is not None:
                     if s > 0: p = p / s
                 if thr_L3 is not None:
                     pred_tmp, pmax_tmp = predict_with_classwise_thresholds(
-                        proba_cal=p.reshape(1, -1),
-                        classes=classes3,
-                        thr_dict=thr_L3,
-                        unknown_label=ABSTAIN_LABEL,
-                        margins=None
+                        proba_cal=p.reshape(1, -1), classes=classes3, thr_dict=thr_L3,
+                        unknown_label=ABSTAIN_LABEL, margins=None
                     )
                     pred3_label[i_global] = pred_tmp[0]
                     p3max[i_global] = pmax_tmp[0]
@@ -339,36 +309,23 @@ if uploaded_file is not None:
         for i, c in enumerate(classes2): df_display[f"P_Level2_{c}"] = prob2[:, i]
         if routed_to_L3:
             df_display.insert(3, "Level3_Pred", pred3_label)
-            for i, c in enumerate(classes3):
-                df_display[f"P_Level3_{c}"] = prob3_raw[:, i]
+            for i, c in enumerate(classes3): df_display[f"P_Level3_{c}"] = prob3_raw[:, i]
 
         st.subheader("🧾 Predictions")
         st.dataframe(df_display, use_container_width=True)
 
-        # -------------------- 组内多数票 + 均值概率 --------------------
-        l1_label, l1_share, l1_mean = level_group_stats(
-            labels=pred1_label, classes=classes1, prob_by_class=prob1,
-            p_max=p1max, p_unknown=None, fill_unknown_for_empty=False
-        )
-        l2_label, l2_share, l2_mean = level_group_stats(
-            labels=pred2_label, classes=classes2, prob_by_class=prob2,
-            p_max=p2max, p_unknown=p2unk, fill_unknown_for_empty=True
-        )
+        # -------------------- 多数票 + 均值概率 --------------------
+        l1_label, l1_share, l1_mean = level_group_stats(pred1_label, classes1, prob1, p1max, None, False)
+        l2_label, l2_share, l2_mean = level_group_stats(pred2_label, classes2, prob2, p2max, p2unk, True)
         if routed_to_L3:
-            l3_label, l3_share, l3_mean = level_group_stats(
-                labels=pred3_label, classes=classes3, prob_by_class=prob3_post,
-                p_max=p3max, p_unknown=p3unk, fill_unknown_for_empty=True
-            )
+            l3_label, l3_share, l3_mean = level_group_stats(pred3_label, classes3, prob3_post, p3max, p3unk, True)
 
-        df_display["L1_TopShare"]    = l1_share
-        df_display["L1_TopMeanProb"] = round(l1_mean, 3)
-        df_display["L2_TopShare"]    = l2_share
-        df_display["L2_TopMeanProb"] = round(l2_mean, 3)
+        for nm, lab, shr, mean_ in [("L1", l1_label, l1_share, l1_mean), ("L2", l2_label, l2_share, l2_mean)]:
+            df_display[f"{nm}_TopShare"] = shr; df_display[f"{nm}_TopMeanProb"] = round(mean_, 3)
         if routed_to_L3:
-            df_display["L3_TopShare"]    = l3_share
-            df_display["L3_TopMeanProb"] = round(l3_mean, 3)
+            df_display["L3_TopShare"] = l3_share; df_display["L3_TopMeanProb"] = round(l3_mean, 3)
 
-        # -------------------- SHAP：tabs 可横向滚动 + 三列并排 --------------------
+        # -------------------- SHAP：三列并排 + Tabs 可横向滚动 --------------------
         st.subheader("📈 SHAP Interpretability")
         st.markdown("""
         <style>
@@ -386,48 +343,32 @@ if uploaded_file is not None:
         TOP_K = 13
         chart_kind = st.radio("Per-class SHAP view", ["Bar (mean |SHAP|)", "Beeswarm"], horizontal=True, index=0)
 
-        def _safe_class_names(m):
-            try:
-                return [str(x) for x in list(getattr(m, "classes_", []))]
-            except Exception:
-                return []
-
-        def _bar_per_class(shap_vals_1class, X, title, top_k=TOP_K):
+        def _bar_per_class(shap_vals_1class, X, title):
             mean_abs = np.mean(np.abs(shap_vals_1class), axis=0).reshape(-1)
             order = np.argsort(mean_abs)
-            k = min(top_k, len(order))
-            sel = order[-k:]
-            feats = np.array(X.columns)[sel]
-            vals  = mean_abs[sel]
+            sel = order[-min(TOP_K, len(order)):]
+            feats = np.array(X.columns)[sel]; vals = mean_abs[sel]
             fig, ax = plt.subplots(figsize=(7, max(3, 0.28*len(sel)+2)))
-            ax.barh(np.arange(len(vals)), vals)
-            ax.set_yticks(np.arange(len(vals)))
-            ax.set_yticklabels(feats)
-            ax.set_xlabel("mean |SHAP|")
-            ax.set_title(title)
-            fig.tight_layout()
-            st.pyplot(fig); plt.close(fig)
+            ax.barh(np.arange(len(vals)), vals); ax.set_yticks(np.arange(len(vals)))
+            ax.set_yticklabels(feats); ax.set_xlabel("mean |SHAP|"); ax.set_title(title)
+            fig.tight_layout(); st.pyplot(fig); plt.close(fig)
 
         def _sv_to_list_per_class(sv, X, class_names):
             N, F = X.shape
-            if isinstance(sv, list):
-                return [np.asarray(a).reshape(N, F) for a in sv]
+            if isinstance(sv, list): return [np.asarray(a).reshape(N, F) for a in sv]
             arr = np.asarray(sv)
             if arr.ndim == 2:
                 r, c = arr.shape
                 if r == N and c == F:
-                    if class_names and len(class_names) == 2: return [-arr, arr]
-                    return [arr]
+                    return [-arr, arr] if class_names and len(class_names) == 2 else [arr]
                 if r == N and c % F == 0:
                     C = c // F; return [arr[:, i*F:(i+1)*F].reshape(N, F) for i in range(C)]
                 if c == F and r % N == 0:
                     C = r // N; return [arr[i*N:(i+1)*N, :].reshape(N, F) for i in range(C)]
                 if class_names and arr.size == N*F*len(class_names):
                     C = len(class_names)
-                    try:    tmp = arr.reshape(N, F, C); return [tmp[:, :, i] for i in range(C)]
-                    except: 
-                        try: tmp = arr.reshape(C, N, F); return [tmp[i, :, :] for i in range(C)]
-                        except: pass
+                    try:    return [arr.reshape(N, F, C)[:, :, i] for i in range(C)]
+                    except: return [arr.reshape(C, N, F)[i, :, :] for i in range(C)]
                 return [arr.reshape(N, F)]
             if arr.ndim == 3:
                 if arr.shape[0] == N and arr.shape[1] == F:
@@ -441,16 +382,16 @@ if uploaded_file is not None:
         def _render_per_class(model, level_name, X):
             explainer = _make_explainer_cached(_model_signature(model), _model=model)
             raw_sv = explainer.shap_values(X)
-            class_names = _safe_class_names(model)
+            class_names = list(getattr(model, "classes_", []))
             sv_list = _sv_to_list_per_class(raw_sv, X, class_names)
             if not class_names or len(class_names) != len(sv_list):
                 class_names = [f"class {i}" for i in range(len(sv_list))]
                 if len(sv_list) == 2: class_names = ["negative", "positive"]
-            tabs = st.tabs(class_names)
+            tabs = st.tabs([str(c) for c in class_names])
             for tab, cname, arr in zip(tabs, class_names, sv_list):
                 with tab:
                     if chart_kind.startswith("Bar"):
-                        _bar_per_class(arr, X, title=f"{level_name} · {cname}", top_k=TOP_K)
+                        _bar_per_class(arr, X, f"{level_name} · {cname}")
                     else:
                         shap.summary_plot(arr, X, max_display=TOP_K, show=False)
                         plt.title(f"{level_name} · {cname}")
@@ -462,9 +403,7 @@ if uploaded_file is not None:
                 st.markdown(f"#### 🔍 {nm} (per class)")
                 _render_per_class(mdl, nm, df_input)
 
-        # -------------------- Summary + 饼图 + 柱状图 + 训练池 + 下载（整合块） --------------------
-
-        # —— 每层计数（按真实类别名）——
+        # -------------------- Summary：表格 + 饼图 + 柱状图 --------------------
         def _vc_df_from_labels(labels: np.ndarray) -> pd.DataFrame:
             s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
             vc = s.value_counts(dropna=False)
@@ -474,98 +413,49 @@ if uploaded_file is not None:
 
         df_l1 = _vc_df_from_labels(pred1_label).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
         df_l2 = _vc_df_from_labels(pred2_label).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
-        df_l3 = (_vc_df_from_labels(pred3_label).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
-                 if routed_to_L3 else pd.DataFrame(columns=["Class","count","share"]))
+        df_l3 = _vc_df_from_labels(pred3_label).sort_values(["count","Class"], ascending=[False,True], ignore_index=True) if routed_to_L3 else pd.DataFrame(columns=["Class","count","share"])
 
-        # —— 合并 Others（小类折叠）——
-        def _collapse_others(df: pd.DataFrame, total_n: int, keep_top: int = 7, tiny_cut: float = 0.02) -> pd.DataFrame:
+        def _collapse_others(df: pd.DataFrame, total_n: int, keep_top: int = 8, tiny_cut: float = 0.02) -> pd.DataFrame:
             if df.empty: return df
             df = df.sort_values(["count","Class"], ascending=[False,True]).reset_index(drop=True)
-            if total_n <= 0 or len(df) <= keep_top:
-                out = df.copy()
+            if total_n <= 0 or len(df) <= keep_top: out = df.copy()
             else:
                 frac = df["count"] / float(total_n)
-                mask_tiny = (frac < tiny_cut)
-                head = df.loc[~mask_tiny].head(max(keep_top-1, 0))
-                tail = pd.concat([df.loc[mask_tiny], df.loc[~mask_tiny].iloc[max(keep_top-1, 0):]], ignore_index=True)
+                head = df.loc[frac >= tiny_cut].head(keep_top-1)
+                tail = pd.concat([df.loc[frac < tiny_cut], df.loc[frac >= tiny_cut].iloc[max(keep_top-1,0):]], ignore_index=True)
                 if len(tail) > 0:
-                    others = pd.DataFrame([{
-                        "Class": "Others",
-                        "count": int(tail["count"].sum()),
-                        "share": round(float(tail["count"].sum()) / float(total_n) if total_n>0 else 0.0, 3)
-                    }])
+                    others = pd.DataFrame([{"Class":"Others","count":int(tail["count"].sum()),
+                                            "share": round(float(tail["count"].sum())/float(total_n), 3)}])
                     out = pd.concat([head, others], ignore_index=True)
                 else:
-                    out = head.copy()
+                    out = head
             s = float(out["count"].sum()) or 1.0
-            out["share"] = (out["count"] / s).round(3)
+            out["share"] = (out["count"]/s).round(3)
             return out
 
-        def _pie_full(col, df: pd.DataFrame, title: str, total_n: int,
-                    small_cut: float = 0.06, tiny_cut: float = 0.02):
-            """完整圆饼（非环形、不卡位、不引线、不错开），小扇区自动不显示百分比，右侧图例。"""
+        def _pie_full(col, df: pd.DataFrame, title: str, total_n: int, small_cut: float = 0.06, tiny_cut: float = 0.02):
             with col:
                 if df.empty or int(df["count"].sum()) == 0 or total_n == 0:
                     fig, ax = plt.subplots(figsize=(4.8,4.2))
                     ax.text(0.5, 0.5, "No data", ha="center", va="center"); ax.axis("off")
                     st.pyplot(fig); plt.close(fig); return
-
-                # 折叠“Others”（把极小类合并，减少过多扇区；阈值可调）
-                def _collapse_others(df_in: pd.DataFrame, keep_top=8, tiny=0.02):
-                    df_in = df_in.sort_values(["count","Class"], ascending=[False,True]).reset_index(drop=True)
-                    if len(df_in) <= keep_top: 
-                        return df_in
-                    frac = df_in["count"] / float(total_n)
-                    head = df_in.loc[frac >= tiny].head(keep_top-1)
-                    tail = pd.concat([df_in.loc[frac < tiny], df_in.loc[frac >= tiny].iloc[max(keep_top-1,0):]])
-                    if len(tail) > 0:
-                        others = pd.DataFrame([{
-                            "Class": "Others",
-                            "count": int(tail["count"].sum()),
-                            "share": round(float(tail["count"].sum())/float(total_n), 3)
-                        }])
-                        out = pd.concat([head, others], ignore_index=True)
-                    else:
-                        out = head
-                    s = float(out["count"].sum()) or 1.0
-                    out["share"] = (out["count"]/s).round(3)
-                    return out
-
-                df_plot = _collapse_others(df, keep_top=8, tiny=tiny_cut)
-
+                df_plot = _collapse_others(df, total_n, keep_top=8, tiny_cut=tiny_cut)
                 labels = df_plot["Class"].astype(str).tolist()
                 sizes  = df_plot["count"].astype(int).to_numpy()
-                fracs  = sizes / sizes.sum()
-
                 colors = [PALETTE[i % len(PALETTE)] for i in range(len(labels))]
-
-                # 小于 small_cut 的扇区不显示百分比，避免挤作一团
-                def _autopct(p):
-                    return f"{p:.0f}%" if (p/100.0) >= small_cut else ""
-
+                def _autopct(p): return f"{p:.0f}%" if (p/100.0) >= small_cut else ""
                 fig, ax = plt.subplots(figsize=(6.2, 4.8))
-                wedges, texts, autotexts = ax.pie(
-                    sizes,
-                    startangle=110, counterclock=False,
-                    colors=colors,
-                    labels=None,                        # 标签统一放图例
-                    autopct=_autopct,                   # 百分比只给“较大”扇区
-                    pctdistance=0.72,                   # 百分比文本靠内一点，减少重叠
-                    labeldistance=1.10,                 #（虽未显示labels，留默认布局）
-                    wedgeprops=dict(linewidth=0.9, edgecolor="white")  # 更清爽的边线
+                wedges, _, _ = ax.pie(
+                    sizes, startangle=110, counterclock=False,
+                    colors=colors, labels=None, autopct=_autopct,
+                    pctdistance=0.72, labeldistance=1.10,
+                    wedgeprops=dict(linewidth=0.9, edgecolor="white")
                 )
-
-                # 右侧图例（不再画引线，避免交叉）
                 ax.legend(wedges, labels, title="Class", loc="center left",
-                        bbox_to_anchor=(1.02, 0.5), frameon=False, fontsize=9)
-
-                ax.axis("equal")
-                ax.set_title(title, pad=10)
+                          bbox_to_anchor=(1.02, 0.5), frameon=False, fontsize=9)
+                ax.axis("equal"); ax.set_title(title, pad=10)
                 st.pyplot(fig); plt.close(fig)
 
-        
-
-        # —— 类别频率柱状图 —— 
         def _bar_from_df(col, df: pd.DataFrame, title: str):
             with col:
                 if df.empty or int(df["count"].sum()) == 0:
@@ -573,34 +463,31 @@ if uploaded_file is not None:
                 fig, ax = plt.subplots(figsize=(6.0,3.8))
                 x = df["Class"].astype(str).tolist()
                 y = df["count"].astype(int).tolist()
-                ax.bar(range(len(x)), y, edgecolor="black", color=[PALETTE[i % len(PALETTE)] for i in range(len(x))])
-                ax.set_xticks(range(len(x)))
-                ax.set_xticklabels(x, rotation=35, ha="right")
+                ax.bar(range(len(x)), y, edgecolor="black",
+                       color=[PALETTE[i % len(PALETTE)] for i in range(len(x))])
+                ax.set_xticks(range(len(x))); ax.set_xticklabels(x, rotation=35, ha="right")
                 ax.set_ylabel("Count"); ax.set_title(title)
                 fig.tight_layout(); st.pyplot(fig); plt.close(fig)
 
-        # —— 三列环形饼图 —— 
-       
+        st.subheader("Class share (pie)")
+        cols_pie = st.columns(3, gap="large")
         _pie_full(cols_pie[0], df_l1, "Level1 · class share", total_n=N)
         _pie_full(cols_pie[1], df_l2, "Level2 · class share", total_n=N)
         _pie_full(cols_pie[2], df_l3, "Level3 · class share", total_n=N)
 
-
-        # —— 三列频率柱状图 —— 
         st.subheader("Class frequency (bars)")
         cols_bar = st.columns(3, gap="large")
         _bar_from_df(cols_bar[0], df_l1, "Level1 · frequency")
         _bar_from_df(cols_bar[1], df_l2, "Level2 · frequency")
         _bar_from_df(cols_bar[2], df_l3, "Level3 · frequency")
 
-        # —— 训练池（放在柱状图之后，下载之前） —— 
+        # -------------------- 训练池（柱状图之后、下载之前） --------------------
         st.subheader("🧩 Add Predictions to Training Pool?")
         if st.checkbox("✅ Confirm to append these samples to the training pool for future retraining"):
             df_save = df_input.copy()
             df_save["Level1"] = pred1_label
             df_save["Level2"] = pred2_label
-            if routed_to_L3:
-                df_save["Level3"] = pred3_label
+            if routed_to_L3: df_save["Level3"] = pred3_label
 
             local_path = "training_pool.csv"
             header_needed = not os.path.exists(local_path)
@@ -608,15 +495,11 @@ if uploaded_file is not None:
             st.success("✅ Samples appended to local training pool.")
 
             try:
-                GITHUB_TOKEN = (
-                    st.secrets.get("gh_token")
-                    or (st.secrets.get("github", {}) or {}).get("token")
-                )
+                GITHUB_TOKEN = (st.secrets.get("gh_token") or (st.secrets.get("github", {}) or {}).get("token"))
                 repo_owner = st.secrets.get("gh_repo_owner", "Farah-rain")
                 repo_name  = st.secrets.get("gh_repo_name",  "chromite")
                 dst_path   = st.secrets.get("gh_dst_path",   "training_pool.csv")
                 branch     = st.secrets.get("gh_branch",     "main")
-
                 if not GITHUB_TOKEN:
                     st.info("GitHub token not configured (gh_token or github.token). Saved locally only.")
                 else:
@@ -636,7 +519,7 @@ if uploaded_file is not None:
             except Exception as e:
                 st.error(f"❌ GitHub sync error: {e}")
 
-        # —— 下载（Prediction + Summary） —— 
+        # -------------------- 下载（Predictions + 各层 Summary） --------------------
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_display.to_excel(writer, index=False, sheet_name='Prediction')
