@@ -553,23 +553,38 @@ if uploaded_file is not None:
             d.insert(0, "Level", level_name)
             return d[["Level", "Class", "Count", "Share"]]
 
+        
         # 三列布局：L1 | L2 | L3(OC在上、CC在下)
         col_l1, col_l2, col_l3 = st.columns(3, gap="large")
 
         with col_l1:
             tbl = _prep_table(df_l1_tbl, "Level1")
-            st.info("No data") if tbl.empty else st.dataframe(tbl, use_container_width=True)
+            if tbl.empty:
+                st.info("No data")
+            else:
+                st.dataframe(tbl, use_container_width=True)
 
         with col_l2:
             tbl = _prep_table(df_l2_tbl, "Level2")
-            st.info("No data") if tbl.empty else st.dataframe(tbl, use_container_width=True)
+            if tbl.empty:
+                st.info("No data")
+            else:
+                st.dataframe(tbl, use_container_width=True)
 
         with col_l3:
             tbl_oc = _prep_table(df_l3_oc_tbl, "Level3-OC")
-            st.info("No Level3-OC data") if tbl_oc.empty else st.dataframe(tbl_oc, use_container_width=True)
+            if tbl_oc.empty:
+                st.info("No Level3-OC data")
+            else:
+                st.dataframe(tbl_oc, use_container_width=True)
+
             st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
             tbl_cc = _prep_table(df_l3_cc_tbl, "Level3-CC")
-            st.info("No Level3-CC data") if tbl_cc.empty else st.dataframe(tbl_cc, use_container_width=True)
+            if tbl_cc.empty:
+                st.info("No Level3-CC data")
+            else:
+                st.dataframe(tbl_cc, use_container_width=True)
 
 
 
