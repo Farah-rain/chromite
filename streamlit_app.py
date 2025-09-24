@@ -1,13 +1,25 @@
-# streamlit_app.py —— Chromite Extraterrestrial Origin Classifier (integrated full script)
+# streamlit_app.py — Chromite Extraterrestrial Origin Classifier (FULL, integrated)
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import shap
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import os, joblib, requests, base64
 from io import BytesIO
 from itertools import chain
+
+# -------------------- 全局外观（可按需改） --------------------
+mpl.rcParams.update({
+    "font.size": 11,
+    "axes.titlesize": 13,
+    "axes.labelsize": 11,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+    "legend.fontsize": 10,
+    "figure.titlesize": 14,
+})
 
 # -------------------- 页面配置 --------------------
 st.set_page_config(page_title="Chromite Extraterrestrial Origin Classifier", layout="wide")
@@ -16,6 +28,7 @@ st.title("✨ Chromite Extraterrestrial Origin Classifier")
 # -------------------- 常量与映射（与训练一致） --------------------
 ABSTAIN_LABEL = "Unclassified"
 THRESHOLDS = {"Level2": 0.90, "Level3": 0.90}
+# Level2 仅对 OC 设置 margin
 MARGINS_LEVEL2 = {"OC": 0.04}
 
 valid_lvl3 = {
@@ -78,7 +91,7 @@ def predict_with_classwise_thresholds(
             preds.append(unknown_label); pmax.append(best_score)
     return np.array(preds, dtype=object), np.array(pmax, dtype=float)
 
-# -------------------- 其他工具函数 --------------------
+# -------------------- 其它小工具 --------------------
 def apply_threshold(proba: np.ndarray, classes: np.ndarray, thr: float):
     max_idx = np.argmax(proba, axis=1)
     max_val = proba[np.arange(proba.shape[0]), max_idx]
@@ -115,86 +128,54 @@ def _model_signature(model) -> str:
     return f"{model.__class__.__name__}|{hash(params_tup)}|{hash(classes)}"
 
 def preprocess_uploaded_data(df):
-    """数据预处理：兼容 FeOT 缺失的拆分；派生特征生成（列名与现有逻辑一致）。"""
-    # 分子量
-    mol_wt = {
-        'TiO2': 79.866, 'Al2O3': 101.961, 'Cr2O3': 151.99, 'FeO': 71.844, 'MnO': 70.937,
-        'MgO': 40.304, 'ZnO': 81.38, 'SiO2': 60.0843, 'V2O3': 149.88, 'Fe2O3': 159.688
-    }
-    # 氧/阳离子个数（spinel 基础）
-    O_num  = {'TiO2':2,'Al2O3':3,'Cr2O3':3,'FeO':1,'MnO':1,'MgO':1,'ZnO':1,'SiO2':2,'V2O3':3}
-    Cat_num= {'TiO2':1,'Al2O3':2,'Cr2O3':2,'FeO':1,'MnO':1,'MgO':1,'ZnO':1,'SiO2':1,'V2O3':2}
-
-    # Fe2O3 ⇄ FeO 的等价换算（按铁当量）
+    """兼容 FeOT 缺失的拆分 + 派生特征生成。"""
+    MW = {'TiO2':79.866,'Al2O3':101.961,'Cr2O3':151.99,'FeO':71.844,'MnO':70.937,'MgO':40.304,'ZnO':81.38,'SiO2':60.0843,'V2O3':149.88}
+    O_num={'TiO2':2,'Al2O3':3,'Cr2O3':3,'FeO':1,'MnO':1,'MgO':1,'ZnO':1,'SiO2':2,'V2O3':3}
+    Cat_num={'TiO2':1,'Al2O3':2,'Cr2O3':2,'FeO':1,'MnO':1,'MgO':1,'ZnO':1,'SiO2':1,'V2O3':2}
     FE2O3_OVER_FEO_FE_EQ = 159.688 / (2 * 71.844)
 
-    # 缺列补 0，保持你现有特征对齐逻辑
-    for ox in ['TiO2','Al2O3','Cr2O3','FeO','Fe2O3','MnO','MgO','ZnO','SiO2','V2O3','FeOT']:
-        if ox not in df.columns:
-            df[ox] = 0.0
+    for ox in MW:
+        if ox not in df.columns: df[ox] = 0.0
     df = df.copy()
 
-    # —— FeOT → FeO/Fe2O3 拆分（如果原始就有 FeO/Fe2O3，则直接沿用）——
-    if "FeO" in df.columns and "Fe2O3" in df.columns and (df["FeO"].notna().any() or df["Fe2O3"].notna().any()):
+    if "FeO" in df.columns and "Fe2O3" in df.columns:
         df = df.rename(columns={"FeO": "FeOre", "Fe2O3": "Fe2O3re"})
         df["FeO_total"] = df["FeOre"] + df["Fe2O3re"] * 0.8998
     else:
         def fe_split_spinel(row, O_basis=32):
-            # 用 FeOT 拆分 Fe2+ / Fe3+
             val_feot = 0.0 if pd.isna(row.get('FeOT', np.nan)) else float(row.get('FeOT'))
-            # 先把各氧化物转为 “摩尔数”
-            moles = {ox: row.get(ox, 0.0) / mol_wt[ox] for ox in mol_wt if ox != 'Fe2O3'}
-            # 用 FeOT 代替 FeO 的质量去算 Fe 的总摩尔
-            moles['FeO'] = val_feot / mol_wt['FeO']
-
-            # 以 O=32 归一化
-            O_total = sum(moles[ox] * O_num.get(ox, 0) for ox in moles)
-            fac = O_basis / O_total if O_total > 0 else 0.0
-            cations = {ox: moles[ox] * Cat_num.get(ox, 0) * fac for ox in moles}
-
-            S = sum(cations.values()); T = 24.0  # spinel 24 阳离子
-            Fe_total = cations['FeO'] if 'FeO' in cations else 0.0
-            Fe3 = max(0.0, 2 * O_basis * (1 - T / S)) if S > 0 else 0.0
-            Fe3 = min(Fe3, Fe_total)
-            Fe2 = Fe_total - Fe3
-
-            Fe2_frac = Fe2 / Fe_total if Fe_total > 0 else 0.0
-            Fe3_frac = Fe3 / Fe_total if Fe_total > 0 else 0.0
-
-            # 还原回质量分数（与原逻辑一致）
+            moles = {ox: row[ox]/MW[ox] for ox in MW if ox != 'FeO'}
+            moles['FeO'] = val_feot / MW['FeO']
+            O_total = sum(moles[ox]*O_num[ox] for ox in moles)
+            fac = O_basis / O_total if O_total>0 else 0.0
+            cations = {ox: moles[ox]*Cat_num[ox]*fac for ox in moles}
+            S = sum(cations.values()); T = 24.0
+            Fe_total = cations['FeO']
+            Fe3 = max(0.0, 2*O_basis*(1 - T/S)) if S>0 else 0.0
+            Fe3 = min(Fe3, Fe_total); Fe2 = Fe_total - Fe3
+            Fe2_frac = Fe2/Fe_total if Fe_total>0 else 0.0
+            Fe3_frac = Fe3/Fe_total if Fe_total>0 else 0.0
             FeO_wt   = Fe2_frac * val_feot
             Fe2O3_wt = Fe3_frac * val_feot * FE2O3_OVER_FEO_FE_EQ
-            return pd.Series({
-                'FeOre': FeO_wt,
-                'Fe2O3re': Fe2O3_wt,
-                'Fe2_frac': Fe2_frac,
-                'Fe3_frac': Fe3_frac,
-                'FeO_total': FeO_wt + Fe2O3_wt * 0.8998
-            })
-
+            return pd.Series({'FeOre':FeO_wt,'Fe2O3re':Fe2O3_wt,'Fe2_frac':Fe2_frac,'Fe3_frac':Fe3_frac,'FeO_total':FeO_wt+Fe2O3_wt*0.8998})
         df = df.join(df.apply(fe_split_spinel, axis=1))
 
-    # —— 派生特征（保持你之前的定义）——
-    Cr_mol  = df["Cr2O3"]  / mol_wt["Cr2O3"] * 2
-    Al_mol  = df["Al2O3"]  / mol_wt["Al2O3"] * 2
-    Mg_mol  = df["MgO"]    / mol_wt["MgO"]
-    Fe2_mol = df["FeOre"]  / mol_wt["FeO"]
-    Fe3_mol = df["Fe2O3re"]/ mol_wt["Fe2O3"] * 2
+    mol_wt = {'Cr2O3':151.99,'Al2O3':101.961,'MgO':40.304,'FeO':71.844,'Fe2O3':159.688}
+    Cr_mol = df["Cr2O3"]/mol_wt["Cr2O3"]*2
+    Al_mol = df["Al2O3"]/mol_wt["Al2O3"]*2
+    Mg_mol = df["MgO"]/mol_wt["MgO"]
+    Fe2_mol = df["FeOre"]/mol_wt["FeO"]
+    Fe3_mol = df["Fe2O3re"]/mol_wt["Fe2O3"]*2
 
     df["Cr#"] = Cr_mol / (Cr_mol + Al_mol)
     df["Mg#"] = Mg_mol / (Mg_mol + Fe2_mol)
     df["Fe*"] = Fe3_mol / (Fe3_mol + Cr_mol + Al_mol)
     df["Fe#"] = Fe2_mol / (Fe2_mol + Mg_mol)
-
     return df
 
+def to_numeric_df(df): return df.apply(pd.to_numeric, errors="coerce")
 
-
-
-def to_numeric_df(df):
-    return df.apply(pd.to_numeric, errors="coerce")
-
-# ========= 单层多数票 + 平均概率 =========
+# ========= 单层多数票 + 均值概率（含 Unclassified & 未路由行）=========
 def level_group_stats(labels, classes, prob_by_class, p_max=None, p_unknown=None, fill_unknown_for_empty=True):
     N = len(labels)
     s = pd.Series(labels, dtype="object").fillna("")
@@ -212,7 +193,6 @@ def level_group_stats(labels, classes, prob_by_class, p_max=None, p_unknown=None
                     0.0,
                     np.nan_to_num(prob_by_class, nan=0.0)
                 )
-
     counts = s.value_counts()
     candidates = list(counts.index)
 
@@ -253,7 +233,7 @@ with st.sidebar:
         st.error("Failed to load models or feature columns.")
         st.exception(e)
 
-# 载入校准器 & 类阈值
+# 载入校准器 & 类阈值（若存在）
 calib_L2, thr_L2 = load_calibrator_and_threshold("Level2")
 calib_L3, thr_L3 = load_calibrator_and_threshold("Level3")
 
@@ -273,7 +253,7 @@ if uploaded_file is not None:
 
         N = len(df_input)
 
-        # ========= Level 1 =========
+        # ========= Level 1（无 Unclassified）=========
         prob1 = model_lvl1.predict_proba(df_input)
         classes1 = model_lvl1.classes_.astype(str)
         pred1_idx = np.argmax(prob1, axis=1)
@@ -312,7 +292,7 @@ if uploaded_file is not None:
             pred2_label[empty2.values] = ABSTAIN_LABEL
             p2unk[empty2.values] = 1.0
 
-        # ========= Level 3（父子约束）=========
+        # ========= Level 3（父子约束 + 校准 + 类阈值）=========
         _pred2_norm = pd.Series(pred2_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
         mask_lvl3 = _pred2_norm.isin(["oc", "cc"]).to_numpy()
         routed_to_L3 = bool(mask_lvl3.any())
@@ -392,15 +372,24 @@ if uploaded_file is not None:
                 p_max=p3max, p_unknown=p3unk, fill_unknown_for_empty=True
             )
 
-        # -------------------- 📈 SHAP（三列并排 + tabs 横向滚动） --------------------
+        # 写回（便于导出/筛选）
+        df_display["L1_TopShare"]    = l1_share
+        df_display["L1_TopMeanProb"] = round(l1_mean, 3)
+        df_display["L2_TopShare"]    = l2_share
+        df_display["L2_TopMeanProb"] = round(l2_mean, 3)
+        if routed_to_L3:
+            df_display["L3_TopShare"]    = l3_share
+            df_display["L3_TopMeanProb"] = round(l3_mean, 3)
+
+        # -------------------- SHAP（横向滚动 tabs + 三列并列） --------------------
         st.subheader("📈 SHAP Interpretability")
         st.markdown("""
         <style>
         .stTabs [data-baseweb="tab-list"]{
-            overflow-x:auto!important;overflow-y:hidden;white-space:nowrap;
-            scrollbar-width:thin;-ms-overflow-style:auto;
+            overflow-x:auto!important; overflow-y:hidden; white-space:nowrap;
+            scrollbar-width:thin; -ms-overflow-style:auto;
         }
-        .stTabs [data-baseweb="tab"]{white-space:nowrap;padding:6px 10px;margin:0 2px;}
+        .stTabs [data-baseweb="tab"]{ white-space:nowrap; padding:6px 10px; margin:0 2px; }
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar{ height:8px; }
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb{ background:rgba(0,0,0,.25); border-radius:8px; }
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-track{ background:rgba(0,0,0,.06); border-radius:8px; }
@@ -411,10 +400,8 @@ if uploaded_file is not None:
         chart_kind = st.radio("Per-class SHAP view", ["Bar (mean |SHAP|)", "Beeswarm"], horizontal=True, index=0)
 
         def _safe_class_names(m):
-            try:
-                return [str(x) for x in list(getattr(m, "classes_", []))]
-            except Exception:
-                return []
+            try: return [str(x) for x in list(getattr(m, "classes_", []))]
+            except Exception: return []
 
         def _bar_per_class(shap_vals_1class, X, title, top_k=TOP_K):
             mean_abs = np.mean(np.abs(shap_vals_1class), axis=0).reshape(-1)
@@ -486,7 +473,114 @@ if uploaded_file is not None:
                 st.markdown(f"#### 🔍 {nm} (per class)")
                 _render_per_class(mdl, nm, df_input)
 
-        # -------------------- ✅ 样品一致性 + 组结果（保留原板块） --------------------
+        # -------------------- Summary 数据 --------------------
+        def _vc_df_from_labels(labels: np.ndarray) -> pd.DataFrame:
+            s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
+            vc = s.value_counts(dropna=False)
+            df = vc.rename_axis("Class").reset_index(name="count")
+            df["share"] = (df["count"] / float(len(s) if len(s) else 1)).round(3)
+            return df[["Class", "count", "share"]]
+
+        df_l1 = _vc_df_from_labels(pred1_label).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
+        df_l2 = _vc_df_from_labels(pred2_label).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
+        df_l3 = (_vc_df_from_labels(pred3_label).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
+                 if routed_to_L3 else pd.DataFrame(columns=["Class","count","share"]))
+
+        # -------------------- 饼图（A 方案：函数参数控制字号） --------------------
+        st.subheader("Class share (pie)")
+        cols_pie = st.columns(3, gap="large")
+
+        def _pie_full(col, df: pd.DataFrame, title: str, total_n: int,
+                      small_cut: float = 0.06, tiny_cut: float = 0.02,
+                      title_size: int = 13, legend_size: int = 10,
+                      legend_title_size: int = 11, pct_size: int = 11):
+            """完整圆饼，不引线不错开；图例显示“类别, 占比”；小扇区不显示百分比文字。"""
+            with col:
+                if df.empty or int(df["count"].sum()) == 0 or total_n == 0:
+                    fig, ax = plt.subplots(figsize=(4.8,4.2))
+                    ax.text(0.5, 0.5, "No data", ha="center", va="center"); ax.axis("off")
+                    st.pyplot(fig); plt.close(fig); return
+
+                def _collapse_others(df_in: pd.DataFrame, keep_top=8, tiny=0.02):
+                    df_in = df_in.sort_values(["count","Class"], ascending=[False,True]).reset_index(drop=True)
+                    if len(df_in) <= keep_top:
+                        out = df_in.copy()
+                    else:
+                        frac_all = df_in["count"] / float(total_n)
+                        head = df_in.loc[frac_all >= tiny].head(keep_top-1)
+                        tail = pd.concat([df_in.loc[frac_all < tiny],
+                                          df_in.loc[frac_all >= tiny].iloc[max(keep_top-1,0):]], ignore_index=True)
+                        if len(tail) > 0:
+                            others = pd.DataFrame([{
+                                "Class": "Others",
+                                "count": int(tail["count"].sum()),
+                                "share": round(float(tail["count"].sum())/float(total_n), 3)
+                            }])
+                            out = pd.concat([head, others], ignore_index=True)
+                        else:
+                            out = head
+                    s = float(out["count"].sum()) or 1.0
+                    out["share"] = (out["count"]/s).round(3)
+                    return out
+
+                df_plot = _collapse_others(df, keep_top=8, tiny=tiny_cut)
+                labels = df_plot["Class"].astype(str).tolist()
+                sizes  = df_plot["count"].astype(int).to_numpy()
+                pct_total = (df_plot["count"] / float(total_n)).fillna(0.0).to_numpy()
+                legend_labels = [f"{c}, {p:.0%}" for c, p in zip(labels, pct_total)]
+                colors = [PALETTE[i % len(PALETTE)] for i in range(len(labels))]
+
+                def _autopct(p):  # 小扇区不显示
+                    return f"{p:.0f}%" if (p/100.0) >= small_cut else ""
+
+                fig, ax = plt.subplots(figsize=(6.4, 5.0))
+                wedges, texts, autotexts = ax.pie(
+                    sizes, startangle=110, counterclock=False, colors=colors,
+                    labels=None, autopct=_autopct, pctdistance=0.72,
+                    wedgeprops=dict(linewidth=0.9, edgecolor="white")
+                )
+                for t in autotexts: t.set_fontsize(pct_size)
+
+                leg = ax.legend(wedges, legend_labels, title="Class", loc="center left",
+                                bbox_to_anchor=(1.02, 0.5), frameon=False, prop={"size": legend_size})
+                if leg.get_title(): leg.get_title().set_fontsize(legend_title_size)
+
+                ax.axis("equal")
+                ax.set_title(title, pad=10, fontsize=title_size)
+                st.pyplot(fig); plt.close(fig)
+
+        _pie_full(cols_pie[0], df_l1, "Level1 · class share", total_n=N)
+        _pie_full(cols_pie[1], df_l2, "Level2 · class share", total_n=N)
+        _pie_full(cols_pie[2], df_l3, "Level3 · class share", total_n=N)
+
+        # -------------------- 类别频率柱状图（count/total 标注） --------------------
+        st.subheader("Class frequency (bars)")
+        cols_bar = st.columns(3, gap="large")
+
+        def _bar_from_df(col, df: pd.DataFrame, title: str, total_n: int, anno_size: int = 10, title_size: int = 13):
+            with col:
+                if df.empty or int(df["count"].sum()) == 0:
+                    st.info("No data"); return
+                fig, ax = plt.subplots(figsize=(6.4, 4.0))
+                x = df["Class"].astype(str).tolist()
+                y = df["count"].astype(int).tolist()
+                colors = [PALETTE[i % len(PALETTE)] for i in range(len(x))]
+                ax.bar(range(len(x)), y, edgecolor="black", color=colors)
+                ax.set_xticks(range(len(x)))
+                ax.set_xticklabels(x, rotation=30, ha="right")
+                ax.set_ylabel("Count"); ax.set_title(title, fontsize=title_size)
+
+                ymax = max(max(y), 1)
+                for i, yi in enumerate(y):
+                    ax.text(i, yi + ymax * 0.02, f"{yi}/{total_n}", ha="center", va="bottom", fontsize=anno_size)
+
+                fig.tight_layout(); st.pyplot(fig); plt.close(fig)
+
+        _bar_from_df(cols_bar[0], df_l1, "Level1 · frequency", total_n=N)
+        _bar_from_df(cols_bar[1], df_l2, "Level2 · frequency", total_n=N)
+        _bar_from_df(cols_bar[2], df_l3, "Level3 · frequency", total_n=N)
+
+        # -------------------- ✅ 样品一致性 + 组结果（保留你的板块） --------------------
         st.subheader("🧪 Specimen Confirmation & Group Result")
         same_specimen = st.checkbox("I confirm all uploaded rows originate from the same physical specimen.")
         if same_specimen:
@@ -514,103 +608,7 @@ if uploaded_file is not None:
                 rows.append({"Level": "Level3", "Top class": l3_label, "Share": l3_share, "Mean prob": round(l3_mean, 3)})
             st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
-        # -------------------- 分类汇总表（Level 在前） --------------------
-        def _vc_df(labels: np.ndarray) -> pd.DataFrame:
-            s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
-            vc = s.value_counts(dropna=False)
-            df = vc.rename_axis("Class").reset_index(name="Count")
-            df["Share"] = (df["Count"] / float(len(s) if len(s) else 1)).round(3)
-            return df[["Class", "Count", "Share"]].sort_values(["Count","Class"], ascending=[False, True], ignore_index=True)
-
-        df_l1 = _vc_df(pred1_label); df_l1.insert(0, "Level", "Level1")
-        df_l2 = _vc_df(pred2_label); df_l2.insert(0, "Level", "Level2")
-        if routed_to_L3:
-            df_l3 = _vc_df(pred3_label); df_l3.insert(0, "Level", "Level3")
-        else:
-            df_l3 = pd.DataFrame(columns=["Level","Class","Count","Share"])
-
-        st.subheader("📋 Classification summary (tables)")
-        cols_tbl = st.columns(3, gap="large")
-        cols_tbl[0].dataframe(df_l1, use_container_width=True)
-        cols_tbl[1].dataframe(df_l2, use_container_width=True)
-        cols_tbl[2].dataframe(df_l3, use_container_width=True)
-
-        # -------------------- 饼图（三列并排，整圆、无引线） --------------------
-        def _collapse_for_pie(df: pd.DataFrame, total_n: int, keep_top=8, tiny_cut=0.02) -> pd.DataFrame:
-            if df.empty: return df
-            base = df.rename(columns={"Count":"count","Share":"share"}).copy()
-            base = base[["Class","count","share"]]
-            base = base.sort_values(["count","Class"], ascending=[False,True]).reset_index(drop=True)
-            if len(base) <= keep_top: return base
-            frac = base["count"] / float(total_n if total_n>0 else 1)
-            head = base.loc[frac >= tiny_cut].head(keep_top-1)
-            tail = pd.concat([base.loc[frac < tiny_cut], base.loc[frac >= tiny_cut].iloc[max(keep_top-1,0):]], ignore_index=True)
-            if len(tail) > 0:
-                others = pd.DataFrame([{
-                    "Class": "Others",
-                    "count": int(tail["count"].sum()),
-                    "share": round(float(tail["count"].sum())/float(total_n if total_n>0 else 1), 3)
-                }])
-                out = pd.concat([head, others], ignore_index=True)
-            else:
-                out = head
-            s = float(out["count"].sum()) or 1.0
-            out["share"] = (out["count"]/s).round(3)
-            return out
-
-        def _pie_full(col, df: pd.DataFrame, title: str, total_n: int, small_cut: float = 0.06):
-            with col:
-                if df.empty or int(df["Count"].sum()) == 0 or total_n == 0:
-                    fig, ax = plt.subplots(figsize=(4.8,4.2))
-                    ax.text(0.5, 0.5, "No data", ha="center", va="center"); ax.axis("off")
-                    st.pyplot(fig); plt.close(fig); return
-
-                d = _collapse_for_pie(df, total_n=total_n, keep_top=8, tiny_cut=0.02)
-                labels = d["Class"].astype(str).tolist()
-                sizes  = d["count"].astype(int).to_numpy()
-                colors = [PALETTE[i % len(PALETTE)] for i in range(len(labels))]
-
-                def _autopct(p): return f"{p:.0f}%" if (p/100.0) >= small_cut else ""
-
-                fig, ax = plt.subplots(figsize=(6.2, 4.8))
-                wedges, texts, autotexts = ax.pie(
-                    sizes, startangle=110, counterclock=False, colors=colors,
-                    labels=None, autopct=_autopct, pctdistance=0.72,
-                    wedgeprops=dict(linewidth=0.9, edgecolor="white")
-                )
-                ax.legend(wedges, labels, title="Class", loc="center left",
-                          bbox_to_anchor=(1.02, 0.5), frameon=False, fontsize=9)
-                ax.axis("equal"); ax.set_title(title, pad=10)
-                st.pyplot(fig); plt.close(fig)
-
-        st.subheader("Class share (pie)")
-        cols_pie = st.columns(3, gap="large")
-        _pie_full(cols_pie[0], df_l1, "Level1 · class share", total_n=N)
-        _pie_full(cols_pie[1], df_l2, "Level2 · class share", total_n=N)
-        _pie_full(cols_pie[2], df_l3, "Level3 · class share", total_n=N)
-
-        # -------------------- 频率柱状图（三列并排） --------------------
-        def _bar_from_df(col, df: pd.DataFrame, title: str):
-            with col:
-                if df.empty or int(df["Count"].sum()) == 0:
-                    st.info("No data"); return
-                fig, ax = plt.subplots(figsize=(6.0,3.8))
-                x = df["Class"].astype(str).tolist()
-                y = df["Count"].astype(int).tolist()
-                ax.bar(range(len(x)), y, edgecolor="black",
-                       color=[PALETTE[i % len(PALETTE)] for i in range(len(x))])
-                ax.set_xticks(range(len(x)))
-                ax.set_xticklabels(x, rotation=35, ha="right")
-                ax.set_ylabel("Count"); ax.set_title(title)
-                fig.tight_layout(); st.pyplot(fig); plt.close(fig)
-
-        st.subheader("Class frequency (bars)")
-        cols_bar = st.columns(3, gap="large")
-        _bar_from_df(cols_bar[0], df_l1, "Level1 · frequency")
-        _bar_from_df(cols_bar[1], df_l2, "Level2 · frequency")
-        _bar_from_df(cols_bar[2], df_l3, "Level3 · frequency")
-
-        # -------------------- 训练池（在柱状图之后，下载之前） --------------------
+        # -------------------- 训练池（柱状图之后、下载之前） --------------------
         st.subheader("🧩 Add Predictions to Training Pool?")
         if st.checkbox("✅ Confirm to append these samples to the training pool for future retraining"):
             df_save = df_input.copy()
@@ -657,10 +655,13 @@ if uploaded_file is not None:
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_display.to_excel(writer, index=False, sheet_name='Prediction')
-            df_l1.to_excel(writer, index=False, sheet_name='Summary_L1')
-            df_l2.to_excel(writer, index=False, sheet_name='Summary_L2')
+            df_l1_export = df_l1.copy(); df_l1_export.insert(0, "Level", "Level1")
+            df_l2_export = df_l2.copy(); df_l2_export.insert(0, "Level", "Level2")
+            df_l1_export.to_excel(writer, index=False, sheet_name='Summary_L1')
+            df_l2_export.to_excel(writer, index=False, sheet_name='Summary_L2')
             if not df_l3.empty:
-                df_l3.to_excel(writer, index=False, sheet_name='Summary_L3')
+                df_l3_export = df_l3.copy(); df_l3_export.insert(0, "Level", "Level3")
+                df_l3_export.to_excel(writer, index=False, sheet_name='Summary_L3')
 
         st.download_button(
             label="📥 Download Predictions (Excel)",
