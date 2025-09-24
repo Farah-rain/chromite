@@ -1,5 +1,4 @@
 
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -576,7 +575,7 @@ if uploaded_file is not None:
                     autopct=_autopct, pctdistance=0.72,
                     labeldistance=1.10,
                     wedgeprops=dict(linewidth=0.9, edgecolor="white"),
-                    textprops=dict(fontsize=int(10*chart_scale))
+                    textprops=dict(fontsize=int(13*chart_scale))
                 )
 
                 
@@ -595,9 +594,9 @@ if uploaded_file is not None:
 
                 ax.legend(wedges, legend_labels, title="Class",
                           loc="center left", bbox_to_anchor=(1.02, 0.5),
-                          frameon=False, fontsize=int(10*chart_scale),
+                          frameon=False, fontsize=int(13*chart_scale),
                           title_fontsize=int(11*chart_scale))
-                ax.axis("equal"); ax.set_title(title, fontsize=int(13*chart_scale), pad=10)
+                ax.axis("equal"); ax.set_title(title, fontsize=int(15*chart_scale), pad=10)
 
                 st.pyplot(fig)
                 st.download_button(
@@ -625,7 +624,7 @@ if uploaded_file is not None:
                 ax.set_xticks(range(len(x)))
                 ax.set_xticklabels(x, rotation=28, ha="right", fontsize=int(10*chart_scale))
                 ax.set_ylabel("Count", fontsize=int(11*chart_scale))
-                ax.set_title(title, fontsize=int(13*chart_scale))
+                ax.set_title(title, fontsize=int(15*chart_scale))
 
                 ymax = max(max(y), 1)
                 ax.set_ylim(0, ymax * 1.18)
