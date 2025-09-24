@@ -521,17 +521,31 @@ if uploaded_file is not None:
             df["Share"] = (df["Count"] / float(len(s))).round(3)
             return df[["Class", "Count", "Share"]]
 
-        # 若上面已计算 df_l1/df_l2/df_l3 就直接用；否则从标签临时构建（基本不会走到）
-        df_l1_tbl = df_l1 if 'df_l1' in locals() else _make_summary_from_labels(pred1_label)
-        df_l2_tbl = df_l2 if 'df_l2' in locals() else _make_summary_from_labels(pred2_label)
-        df_l3_oc_tbl = df_l3_oc if 'df_l3_oc' in locals() else _make_summary_from_labels(pred3_label[mask_OC])  # >>> NEW
-        df_l3_cc_tbl = df_l3_cc if 'df_l3_cc' in locals() else _make_summary_from_labels(pred3_label[mask_CC])  # >>> NEW
+        # —— 关键：只对进入该层的子集做汇总 —— #
+        mask_lvl2_only = (pd.Series(pred1_label, dtype="object")
+                        .astype("string").str.strip().str.lower() == "extraterrestrial").to_numpy()
+
+        mask_l3_oc = (pd.Series(pred2_label, dtype="object") == "OC").to_numpy()
+        mask_l3_cc = (pd.Series(pred2_label, dtype="object") == "CC").to_numpy()
+
+        # L1：全量
+        df_l1_tbl = _make_summary_from_labels(pred1_label)
+
+        # L2：仅 L1=Extraterrestrial 的子集
+        df_l2_tbl = _make_summary_from_labels(pred2_label[mask_lvl2_only])
+
+        # L3：分别对 OC / CC 的子集
+        if routed_to_L3:
+            df_l3_oc_tbl = _make_summary_from_labels(pred3_label[mask_l3_oc])
+            df_l3_cc_tbl = _make_summary_from_labels(pred3_label[mask_l3_cc])
+        else:
+            df_l3_oc_tbl = pd.DataFrame(columns=["Class", "Count", "Share"])
+            df_l3_cc_tbl = pd.DataFrame(columns=["Class", "Count", "Share"])
 
         def _prep_table(df: pd.DataFrame, level_name: str) -> pd.DataFrame:
-            if df is None or df.empty or int(pd.to_numeric(df.get("count", df.get("Count", 0)), errors="coerce").sum()) == 0:
+            if df is None or df.empty or int(pd.to_numeric(df.get("Count", 0), errors="coerce").sum()) == 0:
                 return pd.DataFrame(columns=["Level", "Class", "Count", "Share"])
             d = df.copy()
-            # 兼容 count/share 命名
             if "count" in d.columns: d.rename(columns={"count": "Count"}, inplace=True)
             if "share" in d.columns: d.rename(columns={"share": "Share"}, inplace=True)
             d["Count"] = pd.to_numeric(d["Count"], errors="coerce").fillna(0).astype(int)
@@ -539,44 +553,26 @@ if uploaded_file is not None:
             d.insert(0, "Level", level_name)
             return d[["Level", "Class", "Count", "Share"]]
 
-
-        # === 三列布局：左 L1，中 L2，右 L3(OC 在上、CC 在下) ===
+        # 三列布局：L1 | L2 | L3(OC在上、CC在下)
         col_l1, col_l2, col_l3 = st.columns(3, gap="large")
 
-        # —— 左列：Level1 ——
         with col_l1:
             tbl = _prep_table(df_l1_tbl, "Level1")
-            if tbl.empty:
-                st.info("No data")
-            else:
-                st.dataframe(tbl, use_container_width=True)
+            st.info("No data") if tbl.empty else st.dataframe(tbl, use_container_width=True)
 
-        # —— 中列：Level2 ——
         with col_l2:
             tbl = _prep_table(df_l2_tbl, "Level2")
-            if tbl.empty:
-                st.info("No data")
-            else:
-                st.dataframe(tbl, use_container_width=True)
+            st.info("No data") if tbl.empty else st.dataframe(tbl, use_container_width=True)
 
-        # —— 右列：Level3（OC 在上，CC 在下）——
         with col_l3:
-            # OC 部分
             tbl_oc = _prep_table(df_l3_oc_tbl, "Level3-OC")
-            if tbl_oc.empty:
-                st.info("No Level3-OC data")
-            else:
-                st.dataframe(tbl_oc, use_container_width=True)
-
-            # 视觉分隔
+            st.info("No Level3-OC data") if tbl_oc.empty else st.dataframe(tbl_oc, use_container_width=True)
             st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-
-            # CC 部分（在 OC 下方）
             tbl_cc = _prep_table(df_l3_cc_tbl, "Level3-CC")
-            if tbl_cc.empty:
-                st.info("No Level3-CC data")
-            else:
-                st.dataframe(tbl_cc, use_container_width=True)
+            st.info("No Level3-CC data") if tbl_cc.empty else st.dataframe(tbl_cc, use_container_width=True)
+
+
+
 
         
         # -------------------- 饼图 + 直方图 + 下载 PNG --------------------
