@@ -609,54 +609,81 @@ if uploaded_file is not None:
                 st.error(f"❌ GitHub sync error: {e}")
 
         # -------------------- 📊 分类汇总表（Level1/2/3） --------------------
-        st.subheader("📊 Classification Summary (Counts)")
+        
+        st.subheader("📊 Vertical Summary")
 
-        def _summary_from_labels(level_name: str, labels: np.ndarray, total_n: int) -> pd.DataFrame:
-            s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL)
-            s = s.replace("", ABSTAIN_LABEL)  # 空字符串也算 Unclassified
+        def _vc_df(labels: np.ndarray, total_n: int) -> pd.DataFrame:
+            s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
             vc = s.value_counts(dropna=False)
-            
             df = (
                 vc.rename_axis("Class")
-                .reset_index(name="Count")
-                .assign(Level=level_name)
+                  .reset_index(name="Count")
             )
             df["Share"] = (df["Count"] / float(total_n)).round(3)
-
-            # —— 关键：把列顺序改为 Level, Class, Count, Share ——
-            df = df[["Level", "Class", "Count", "Share"]]
-
-            df = df.sort_values(["Level", "Count", "Class"], ascending=[True, False, True], ignore_index=True)
+            df = df[["Class", "Count", "Share"]]
             return df
 
-        df_sum_l1 = _summary_from_labels("Level1", pred1_label, N)
-        df_sum_l2 = _summary_from_labels("Level2", pred2_label, N)
+        # —— Level1：按“地外 vs 地球”二分类 + 饼图 ——
+        l1_raw = pd.Series(pred1_label, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
+        is_ext = l1_raw.str.lower().eq("extraterrestrial")
+        l1_ext = int(is_ext.sum())
+        l1_earth = int(len(l1_raw) - l1_ext)
+        df_l1 = pd.DataFrame({
+            "Class": ["Extraterrestrial", "Terrestrial"],
+            "Count": [l1_ext, l1_earth],
+        })
+        df_l1["Share"] = (df_l1["Count"] / float(N)).round(3)
+        st.markdown("##### Level 1")
+        col_l1_t, col_l1_fig = st.columns([2, 1], gap="large")
+        with col_l1_t:
+            st.dataframe(df_l1, use_container_width=True)
+        with col_l1_fig:
+            fig, ax = plt.subplots(figsize=(3.6, 3.6))
+            ax.pie(df_l1["Count"].to_numpy(), labels=df_l1["Class"].tolist(), autopct="%1.0f%%", startangle=90)
+            ax.axis("equal")
+            ax.set_title("Level1 · Earth vs Extraterrestrial")
+            st.pyplot(fig); plt.close(fig)
+
+        # —— Level2：竖排各类计数/占比（含 Unclassified） ——
+        st.markdown("##### Level 2")
+        df_l2 = _vc_df(pred2_label, N).sort_values(["Count", "Class"], ascending=[False, True], ignore_index=True)
+        st.dataframe(df_l2, use_container_width=True)
+
+        # —— Level3：仅在路由到 L3 时展示竖排表 ——
         if routed_to_L3:
-            df_sum_l3 = _summary_from_labels("Level3", pred3_label, N)
-            df_summary = pd.concat([df_sum_l1, df_sum_l2, df_sum_l3], ignore_index=True)
+            st.markdown("##### Level 3")
+            df_l3 = _vc_df(pred3_label, N).sort_values(["Count", "Class"], ascending=[False, True], ignore_index=True)
+            st.dataframe(df_l3, use_container_width=True)
         else:
-            df_summary = pd.concat([df_sum_l1, df_sum_l2], ignore_index=True)
+            df_l3 = None  # 便于导出
 
-        # Level1 的地球 vs 地外快速视图
-        if "Level1" in df_summary["Level"].values:
-            l1_view = df_summary[df_summary["Level"] == "Level1"].copy()
-            extra_cnt = int(l1_view[l1_view["Class"].str.lower() == "extraterrestrial"]["Count"].sum())
-            earth_cnt = int(l1_view["Count"].sum() - extra_cnt)
-            st.caption(f"Level1 quick view → Earth: **{earth_cnt}**, Extraterrestrial: **{extra_cnt}**")
+        # -------------------- 📉 频率直方图（置信度分布） --------------------
+        st.subheader("📉 Frequency Histogram")
+        # 这里选 Level1 的最大概率分布；也可按需换成 p2max/p3max
+        fig_h, ax_h = plt.subplots(figsize=(6.5, 3.6))
+        ax_h.hist(np.asarray(p1max).astype(float), bins=12, edgecolor="black")
+        ax_h.set_xlabel("Level1 max probability (p_max)")
+        ax_h.set_ylabel("Frequency")
+        ax_h.set_title("Confidence distribution · Level1")
+        st.pyplot(fig_h); plt.close(fig_h)
 
-        st.dataframe(df_summary, use_container_width=True)
-
-        # -------------------- 结果下载 --------------------
+        # -------------------- 结果下载（Prediction + 竖排三表） --------------------
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_display.to_excel(writer, index=False, sheet_name='Prediction')
-            df_summary.to_excel(writer, index=False, sheet_name='Summary')
+            # 导出竖排 Summary：L1/L2/L3 各一张表
+            df_l1.to_excel(writer, index=False, sheet_name='Summary_L1')
+            df_l2.to_excel(writer, index=False, sheet_name='Summary_L2')
+            if df_l3 is not None:
+                df_l3.to_excel(writer, index=False, sheet_name='Summary_L3')
         st.download_button(
             label="📥 Download Predictions (Excel)",
             data=output.getvalue(),
             file_name="prediction_results.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+
 
     except Exception as e:
         st.error("Error while processing the uploaded file.")
