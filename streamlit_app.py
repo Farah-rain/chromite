@@ -527,11 +527,95 @@ if uploaded_file is not None:
                 ax.set_title(title)
                 st.pyplot(fig); plt.close(fig)
 
+        
+        # ---------- 更清晰的饼图：小份额外置+引线、可合并 Others、环形 ----------
         st.markdown("##### Class share (pie)")
+
+        def _collapse_others(df: pd.DataFrame, total_n: int, keep_top: int = 7, tiny_cut: float = 0.02) -> pd.DataFrame:
+            """把非常小（< tiny_cut）或排名靠后的类合并到 Others；按 count 降序."""
+            df = df.sort_values(["count", "Class"], ascending=[False, True]).reset_index(drop=True)
+            # 先把占比< tiny_cut 的挑出来
+            frac = df["count"] / float(total_n) if total_n > 0 else 0
+            mask_tiny = frac < tiny_cut
+            # 再保留前 keep_top-1，其余也合到 Others
+            head = df.loc[~mask_tiny].head(max(keep_top - 1, 0)]
+            tail = pd.concat([df.loc[mask_tiny], df.loc[~mask_tiny].iloc[max(keep_top - 1, 0):]], ignore_index=True)
+            if len(tail) > 0:
+                others = pd.DataFrame([{
+                    "Class": "Others",
+                    "count": int(tail["count"].sum()),
+                    "share": round(float(tail["count"].sum()) / float(total_n) if total_n > 0 else 0.0, 3)
+                }])
+                df_new = pd.concat([head, others], ignore_index=True)
+            else:
+                df_new = head.copy()
+            # 重新计算 share（以当前 df_new 为准）
+            s = float(df_new["count"].sum()) or 1.0
+            df_new["share"] = (df_new["count"] / s).round(3)
+            return df_new
+
+        def _pie_donut(col, df: pd.DataFrame, title: str, total_n: int, small_cut: float = 0.06, tiny_cut: float = 0.02):
+            with col:
+                if total_n == 0 or df["count"].sum() == 0:
+                    fig, ax = plt.subplots(figsize=(4.2, 4))
+                    ax.text(0.5, 0.5, "No data", ha="center", va="center")
+                    ax.axis("off")
+                    st.pyplot(fig); plt.close(fig); return
+
+                # 合并极小类、限制切片数
+                df_plot = _collapse_others(df, total_n=total_n, keep_top=7, tiny_cut=tiny_cut)
+                labels = df_plot["Class"].astype(str).tolist()
+                sizes  = df_plot["count"].astype(int).to_numpy()
+                fracs  = sizes / sizes.sum()
+
+                fig, ax = plt.subplots(figsize=(5.2, 4.6), constrained_layout=True)
+
+                # 环形：wedgeprops width 决定内径
+                wedges, _texts, _autotexts = ax.pie(
+                    sizes,
+                    startangle=90, counterclock=False,
+                    wedgeprops=dict(width=0.35, linewidth=0.8, edgecolor="white"),
+                    labels=None, autopct=None  # 先不画标签，下面手动标注更灵活
+                )
+
+                # —— 标注策略：
+                # 大片(>=small_cut)：在扇区内画百分比
+                # 小片(<small_cut)：外置“Class  xx%”，带引线
+                for w, lab, f in zip(wedges, labels, fracs):
+                    ang = (w.theta2 + w.theta1) / 2.0
+                    x = np.cos(np.deg2rad(ang))
+                    y = np.sin(np.deg2rad(ang))
+                    pct_txt = f"{int(round(100*f))}%"
+
+                    if f >= small_cut:
+                        # 扇区内居中写百分比
+                        ax.text(0.7 * x, 0.7 * y, pct_txt, ha="center", va="center", fontsize=10)
+                    else:
+                        # 外置标签 + 引线
+                        ax.annotate(
+                            f"{lab}  {pct_txt}",
+                            xy=(x*0.85, y*0.85), xytext=(1.12*np.sign(x), 1.12*y),
+                            textcoords='data',
+                            ha='left' if x >= 0 else 'right', va='center',
+                            fontsize=9,
+                            arrowprops=dict(arrowstyle='-', connectionstyle='angle3,angleA=0,angleB=90',
+                                            linewidth=0.8, shrinkA=0, shrinkB=0)
+                        )
+
+                # 图例放右侧，避免遮挡
+                ax.legend(wedges, labels, title="Class", loc="center left",
+                        bbox_to_anchor=(1.02, 0.5), frameon=False, fontsize=9)
+
+                # 中心留白一点标题空间
+                ax.axis("equal")
+                ax.set_title(title, pad=10)
+                st.pyplot(fig); plt.close(fig)
+
         cols_pie = st.columns(3, gap="large")
-        _pie_from_df(cols_pie[0], df_l1, "Level1 · class share")
-        _pie_from_df(cols_pie[1], df_l2, "Level2 · class share")
-        _pie_from_df(cols_pie[2], df_l3, "Level3 · class share")
+        _pie_donut(cols_pie[0], df_l1, "Level1 · class share", total_n=N)
+        _pie_donut(cols_pie[1], df_l2, "Level2 · class share", total_n=N)
+        _pie_donut(cols_pie[2], df_l3, "Level3 · class share", total_n=N)
+
 
         # ---------- 三个频率柱状图 ----------
         st.subheader("📉 Class Frequency Histogram (per level)")
