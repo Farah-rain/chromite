@@ -474,6 +474,25 @@ if uploaded_file is not None:
                 _render_per_class(mdl, nm, df_input)
 
         # -------------------- 饼图 + 直方图 + 下载 PNG --------------------
+        # -------------------- Classification summary (tables) --------------------
+        st.subheader("📋 Classification summary (tables)")
+
+        def _show_table(col, df: pd.DataFrame, level_name: str):
+            with col:
+                if df.empty or int(df["count"].sum()) == 0:
+                    st.info("No data")
+                else:
+                    df_show = df.copy()
+                    # 列名统一；Level 列放在最前
+                    df_show.rename(columns={"count": "Count", "share": "Share"}, inplace=True)
+                    df_show.insert(0, "Level", level_name)
+                    st.dataframe(df_show[["Level", "Class", "Count", "Share"]], use_container_width=True)
+
+        cols_tbl = st.columns(3, gap="large")
+        _show_table(cols_tbl[0], df_l1, "Level1")
+        _show_table(cols_tbl[1], df_l2, "Level2")
+        _show_table(cols_tbl[2], df_l3, "Level3")
+
         st.subheader("Class share (pie)")
 
         def _vc_df(labels: np.ndarray) -> pd.DataFrame:
