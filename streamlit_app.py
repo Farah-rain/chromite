@@ -1,4 +1,4 @@
-# streamlit_app.py — Chromite Extraterrestrial Origin Classifier (fully integrated)
+
 
 import streamlit as st
 import pandas as pd
@@ -579,7 +579,20 @@ if uploaded_file is not None:
                     textprops=dict(fontsize=int(10*chart_scale))
                 )
 
-                legend_labels = [f"{lab}, {sh:.0%}" for lab, sh in zip(labels, fracs)]
+                
+                def _fmt_frac(sh: float) -> str:
+                    
+                    if sh >= 0.1:     # ≥10%
+                        return f"{sh:.0%}"
+                    elif sh >= 0.01:  # 1%–10%
+                        return f"{sh:.1%}"
+                    elif sh >= 0.001: # 0.1%–1%
+                        return f"{sh:.2%}"
+                    else:             # <0.1%，再多保留一位
+                        return f"{sh:.3%}"
+
+                legend_labels = [f"{lab}, {_fmt_frac(sh)}" for lab, sh in zip(labels, fracs)]
+
                 ax.legend(wedges, legend_labels, title="Class",
                           loc="center left", bbox_to_anchor=(1.02, 0.5),
                           frameon=False, fontsize=int(10*chart_scale),
