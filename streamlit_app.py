@@ -64,19 +64,15 @@ def predict_with_classwise_thresholds(
     thr_dict = thr_dict or {}
     preds, pmax = [], []
     for row in proba_cal:
-        # 候选：达到该类阈值的类索引
         cand = [j for j, cls in enumerate(classes) if row[j] >= float(thr_dict.get(str(cls), 0.5))]
         if not cand:
             preds.append(unknown_label); pmax.append(float(np.nanmax(row)))
             continue
-        # 在候选中取分数最高
         j_best = max(cand, key=lambda k: row[k])
         best_score = row[j_best]
-        # runner-up（全类里第二高）
         order = np.argsort(row)[::-1]
         j_second = order[1] if C >= 2 else j_best
         gap = best_score - row[j_second]
-        # margin 判定（若配置）
         ok_margin = True
         if margins is not None:
             m = float(margins.get(str(classes[j_best]), 0.0))
@@ -169,8 +165,8 @@ def preprocess_uploaded_data(df):
 
     df["Cr#"] = Cr_mol / (Cr_mol + Al_mol)
     df["Mg#"] = Mg_mol / (Mg_mol + Fe2_mol)
-    df["Fe*"]   = Fe3_mol / (Fe3_mol + Cr_mol + Al_mol)
-    df["Fe#"]     = Fe2_mol / (Fe2_mol + Mg_mol)
+    df["Fe*"] = Fe3_mol / (Fe3_mol + Cr_mol + Al_mol)
+    df["Fe#"] = Fe2_mol / (Fe2_mol + Mg_mol)
     return df
 
 def to_numeric_df(df):
@@ -275,9 +271,7 @@ if uploaded_file is not None:
 
         if mask_lvl2.any():
             pr2 = model_lvl2.predict_proba(df_input[mask_lvl2])
-            # 应用校准器（若有）
             pr2_cal = apply_calibrators(pr2, classes2, calib_L2)
-            # 优先类阈值 + margin；否则回退统一阈值
             if thr_L2 is not None:
                 pred2_masked, p2max_masked = predict_with_classwise_thresholds(
                     proba_cal=pr2_cal, classes=classes2, thr_dict=thr_L2,
@@ -291,14 +285,13 @@ if uploaded_file is not None:
             p2max[mask_lvl2] = p2max_masked
             p2unk[mask_lvl2] = 1.0 - p2max_masked
 
-        # 对未路由行：视为 Unclassified；Unclassified 概率=1；实类概率=0
         prob2 = np.nan_to_num(prob2_raw, nan=0.0)
         empty2 = (pd.Series(pred2_label, dtype="object") == "")
         if empty2.any():
             pred2_label[empty2.values] = ABSTAIN_LABEL
             p2unk[empty2.values] = 1.0
 
-        # ========= Level 3（父子约束 + 校准 + 类阈值（无 margin）========= 
+        # ========= Level 3（父子约束 + 校准 + 类阈值（无 margin）=========
         _pred2_norm = pd.Series(pred2_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
         mask_lvl3 = _pred2_norm.isin(["oc", "cc"]).to_numpy()
         routed_to_L3 = bool(mask_lvl3.any())
@@ -313,7 +306,6 @@ if uploaded_file is not None:
 
         if routed_to_L3:
             all_pr3 = model_lvl3.predict_proba(df_input[mask_lvl3])
-            # 校准（若有）
             all_pr3_cal = apply_calibrators(all_pr3, classes3, calib_L3)
 
             idxs = np.where(mask_lvl3)[0]
@@ -346,7 +338,6 @@ if uploaded_file is not None:
                 p3unk[i_global] = 1.0 - p3max[i_global]
                 prob3_post[i_global] = p
 
-            # 未路由到 L3 的行：设为 Unclassified
             empty3 = (pd.Series(pred3_label, dtype="object") == "")
             if empty3.any():
                 pred3_label[empty3.values] = ABSTAIN_LABEL
@@ -362,7 +353,6 @@ if uploaded_file is not None:
         for i, c in enumerate(classes1): df_display[f"P_Level1_{c}"] = prob1[:, i]
         for i, c in enumerate(classes2): df_display[f"P_Level2_{c}"] = prob2[:, i]
 
-        # 只有当整组有样本路由到 L3 时才添加 L3 列
         if routed_to_L3:
             df_display.insert(3, "Level3_Pred", pred3_label)
             for i, c in enumerate(classes3):
@@ -372,24 +362,21 @@ if uploaded_file is not None:
         st.dataframe(df_display)
 
         # -------------------- 组内多数票 + 均值概率（Unclassified 参与；分母=N） --------------------
-        # L1（无 Unclassified）
         l1_label, l1_share, l1_mean = level_group_stats(
             labels=pred1_label, classes=classes1, prob_by_class=prob1,
             p_max=p1max, p_unknown=None, fill_unknown_for_empty=False
         )
-        # L2（有 Unclassified）
         l2_label, l2_share, l2_mean = level_group_stats(
             labels=pred2_label, classes=classes2, prob_by_class=prob2,
             p_max=p2max, p_unknown=p2unk, fill_unknown_for_empty=True
         )
-        # L3（只有当 routed_to_L3 为真时才计算）
         if routed_to_L3:
             l3_label, l3_share, l3_mean = level_group_stats(
                 labels=pred3_label, classes=classes3, prob_by_class=prob3_post,
                 p_max=p3max, p_unknown=p3unk, fill_unknown_for_empty=True
             )
 
-        # 把组级统计写回表（每行相同，便于导出/筛选）
+        # 写回表（每行相同，便于导出/筛选）
         df_display["L1_TopShare"]    = l1_share
         df_display["L1_TopMeanProb"] = round(l1_mean, 3)
         df_display["L2_TopShare"]    = l2_share
@@ -400,6 +387,31 @@ if uploaded_file is not None:
 
         # -------------------- 📈 SHAP Interpretability --------------------
         st.subheader("📈 SHAP Interpretability")
+
+        # ===== 可见横向滚轴：让 tabs 可左右拖动 =====
+        st.markdown("""
+        <style>
+        .stTabs [data-baseweb="tab-list"]{
+            overflow-x: auto !important;
+            overflow-y: hidden;
+            white-space: nowrap;
+            scrollbar-width: thin;
+            -ms-overflow-style: auto;
+        }
+        .stTabs [data-baseweb="tab"]{
+            white-space: nowrap;
+            padding: 6px 10px;
+            margin: 0 2px;
+        }
+        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar{ height: 8px; }
+        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb{
+            background: rgba(0,0,0,.25); border-radius: 8px;
+        }
+        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-track{
+            background: rgba(0,0,0,.06); border-radius: 8px;
+        }
+        </style>
+        """, unsafe_allow_html=True)
 
         TOP_K = 13  # 一次显示的特征数
         chart_kind = st.radio(
@@ -471,13 +483,6 @@ if uploaded_file is not None:
                     return [arr[:, i, :].reshape(N, F) for i in range(C)]
             return [arr.reshape(N, F)]
 
-        def _model_signature(model) -> str:
-            try:    params_tup = tuple(sorted((k, str(v)) for k, v in model.get_params().items()))
-            except Exception: params_tup = ()
-            try:    classes = tuple(map(str, getattr(model, "classes_", ())))
-            except Exception: classes = ()
-            return f"{model.__class__.__name__}|{hash(params_tup)}|{hash(classes)}"
-
         def _render_per_class(model, level_name, X):
             explainer = _make_explainer_cached(_model_signature(model), _model=model)
             raw_sv = explainer.shap_values(X)
@@ -497,11 +502,10 @@ if uploaded_file is not None:
                         plt.title(f"{level_name} · {cname}")
                         st.pyplot(plt.gcf()); plt.close()
 
-        cols = st.columns(3)
-        for col, (mdl, nm) in zip(cols, [(model_lvl1, "Level1"), (model_lvl2, "Level2"), (model_lvl3, "Level3")]):
-            with col:
-                st.markdown(f"#### 🔍 {nm} (per class)")
-                _render_per_class(mdl, nm, df_input)
+        # —— 单列全宽展示，配合滚轴体验最佳 ——
+        for mdl, nm in [(model_lvl1, "Level1"), (model_lvl2, "Level2"), (model_lvl3, "Level3")]:
+            st.markdown(f"#### 🔍 {nm} (per class)")
+            _render_per_class(mdl, nm, df_input)
 
         # -------------------- ✅ 样品一致性 + 组结果 --------------------
         st.subheader("🧪 Specimen Confirmation & Group Result")
@@ -574,10 +578,44 @@ if uploaded_file is not None:
             except Exception as e:
                 st.error(f"❌ GitHub sync error: {e}")
 
+        # -------------------- 📊 分类汇总表（Level1/2/3） --------------------
+        st.subheader("📊 Classification Summary (Counts)")
+
+        def _summary_from_labels(level_name: str, labels: np.ndarray, total_n: int) -> pd.DataFrame:
+            s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL)
+            s = s.replace("", ABSTAIN_LABEL)  # 空字符串也算 Unclassified
+            vc = s.value_counts(dropna=False)
+            df = (
+                vc.rename_axis("Class")
+                  .reset_index(name="Count")
+                  .assign(Level=level_name)
+            )
+            df["Share"] = (df["Count"] / float(total_n)).round(3)
+            df = df.sort_values(["Level", "Count", "Class"], ascending=[True, False, True], ignore_index=True)
+            return df
+
+        df_sum_l1 = _summary_from_labels("Level1", pred1_label, N)
+        df_sum_l2 = _summary_from_labels("Level2", pred2_label, N)
+        if routed_to_L3:
+            df_sum_l3 = _summary_from_labels("Level3", pred3_label, N)
+            df_summary = pd.concat([df_sum_l1, df_sum_l2, df_sum_l3], ignore_index=True)
+        else:
+            df_summary = pd.concat([df_sum_l1, df_sum_l2], ignore_index=True)
+
+        # Level1 的地球 vs 地外快速视图
+        if "Level1" in df_summary["Level"].values:
+            l1_view = df_summary[df_summary["Level"] == "Level1"].copy()
+            extra_cnt = int(l1_view[l1_view["Class"].str.lower() == "extraterrestrial"]["Count"].sum())
+            earth_cnt = int(l1_view["Count"].sum() - extra_cnt)
+            st.caption(f"Level1 quick view → Earth: **{earth_cnt}**, Extraterrestrial: **{extra_cnt}**")
+
+        st.dataframe(df_summary, use_container_width=True)
+
         # -------------------- 结果下载 --------------------
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_display.to_excel(writer, index=False, sheet_name='Prediction')
+            df_summary.to_excel(writer, index=False, sheet_name='Summary')
         st.download_button(
             label="📥 Download Predictions (Excel)",
             data=output.getvalue(),
