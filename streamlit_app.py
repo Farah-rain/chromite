@@ -539,19 +539,46 @@ if uploaded_file is not None:
             d.insert(0, "Level", level_name)
             return d[["Level", "Class", "Count", "Share"]]
 
-        # >>> NEW: 四列 —— L1 / L2 / L3-OC / L3-CC
-        cols_tbl = st.columns(4, gap="large")
-        for col, (df_lv, name) in zip(
-            cols_tbl,
-            [(df_l1_tbl, "Level1"), (df_l2_tbl, "Level2"), (df_l3_oc_tbl, "Level3-OC"), (df_l3_cc_tbl, "Level3-CC")]
-        ):
-            with col:
-                tbl = _prep_table(df_lv, name)
-                if tbl.empty:
-                    st.info("No data")
-                else:
-                    st.dataframe(tbl, use_container_width=True)
 
+        # === 三列布局：左 L1，中 L2，右 L3(OC 在上、CC 在下) ===
+        col_l1, col_l2, col_l3 = st.columns(3, gap="large")
+
+        # —— 左列：Level1 ——
+        with col_l1:
+            tbl = _prep_table(df_l1_tbl, "Level1")
+            if tbl.empty:
+                st.info("No data")
+            else:
+                st.dataframe(tbl, use_container_width=True)
+
+        # —— 中列：Level2 ——
+        with col_l2:
+            tbl = _prep_table(df_l2_tbl, "Level2")
+            if tbl.empty:
+                st.info("No data")
+            else:
+                st.dataframe(tbl, use_container_width=True)
+
+        # —— 右列：Level3（OC 在上，CC 在下）——
+        with col_l3:
+            # OC 部分
+            tbl_oc = _prep_table(df_l3_oc_tbl, "Level3-OC")
+            if tbl_oc.empty:
+                st.info("No Level3-OC data")
+            else:
+                st.dataframe(tbl_oc, use_container_width=True)
+
+            # 视觉分隔
+            st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
+            # CC 部分（在 OC 下方）
+            tbl_cc = _prep_table(df_l3_cc_tbl, "Level3-CC")
+            if tbl_cc.empty:
+                st.info("No Level3-CC data")
+            else:
+                st.dataframe(tbl_cc, use_container_width=True)
+
+        
         # -------------------- 饼图 + 直方图 + 下载 PNG --------------------
         st.subheader("🪐Class share (pie)")
 
