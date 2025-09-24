@@ -389,6 +389,33 @@ if uploaded_file is not None:
         st.subheader("📈 SHAP Interpretability")
 
         # ===== 可见横向滚轴：让 tabs 可左右拖动 =====
+        # ===== 让每个列里的 tabs 出现“可拖动”的横向滚轴 =====
+        st.markdown("""
+        <style>
+        /* 让 Tab 列表横向滚动并显示滚动条（每个列里的 tabs 都适用） */
+        .stTabs [data-baseweb="tab-list"]{
+            overflow-x: auto !important;
+            overflow-y: hidden;
+            white-space: nowrap;
+            scrollbar-width: thin;          /* Firefox */
+            -ms-overflow-style: auto;       /* IE/旧 Edge */
+        }
+        .stTabs [data-baseweb="tab"]{
+            white-space: nowrap;
+            padding: 6px 10px;
+            margin: 0 2px;
+        }
+        /* WebKit 滚动条样式（Chrome/Safari/Edge） */
+        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar{ height: 8px; }
+        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb{
+            background: rgba(0,0,0,.25); border-radius: 8px;
+        }
+        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-track{
+            background: rgba(0,0,0,.06); border-radius: 8px;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
         st.markdown("""
         <style>
         .stTabs [data-baseweb="tab-list"]{
@@ -502,10 +529,13 @@ if uploaded_file is not None:
                         plt.title(f"{level_name} · {cname}")
                         st.pyplot(plt.gcf()); plt.close()
 
-        # —— 单列全宽展示，配合滚轴体验最佳 ——
-        for mdl, nm in [(model_lvl1, "Level1"), (model_lvl2, "Level2"), (model_lvl3, "Level3")]:
-            st.markdown(f"#### 🔍 {nm} (per class)")
-            _render_per_class(mdl, nm, df_input)
+       # —— 三列并排展示（每列内部 tabs 可横向滚动） ——
+        cols = st.columns(3)
+        for col, (mdl, nm) in zip(cols, [(model_lvl1, "Level1"), (model_lvl2, "Level2"), (model_lvl3, "Level3")]):
+            with col:
+                st.markdown(f"#### 🔍 {nm} (per class)")
+                _render_per_class(mdl, nm, df_input)
+
 
         # -------------------- ✅ 样品一致性 + 组结果 --------------------
         st.subheader("🧪 Specimen Confirmation & Group Result")
@@ -585,12 +615,17 @@ if uploaded_file is not None:
             s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL)
             s = s.replace("", ABSTAIN_LABEL)  # 空字符串也算 Unclassified
             vc = s.value_counts(dropna=False)
+            
             df = (
                 vc.rename_axis("Class")
-                  .reset_index(name="Count")
-                  .assign(Level=level_name)
+                .reset_index(name="Count")
+                .assign(Level=level_name)
             )
             df["Share"] = (df["Count"] / float(total_n)).round(3)
+
+            # —— 关键：把列顺序改为 Level, Class, Count, Share ——
+            df = df[["Level", "Class", "Count", "Share"]]
+
             df = df.sort_values(["Level", "Count", "Class"], ascending=[True, False, True], ignore_index=True)
             return df
 
