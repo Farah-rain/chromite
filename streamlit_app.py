@@ -501,67 +501,69 @@ if uploaded_file is not None:
             out["share"] = (out["count"] / s).round(3)
             return out
 
-        # —— 环形饼图（小扇区引线+防重叠+轻微 explode+图例）——
-        def _pie_donut(col, df: pd.DataFrame, title: str, total_n: int,
-                       small_cut: float = 0.06, tiny_cut: float = 0.02):
+        def _pie_full(col, df: pd.DataFrame, title: str, total_n: int,
+                    small_cut: float = 0.06, tiny_cut: float = 0.02):
+            """完整圆饼（非环形、不卡位、不引线、不错开），小扇区自动不显示百分比，右侧图例。"""
             with col:
                 if df.empty or int(df["count"].sum()) == 0 or total_n == 0:
                     fig, ax = plt.subplots(figsize=(4.8,4.2))
                     ax.text(0.5, 0.5, "No data", ha="center", va="center"); ax.axis("off")
                     st.pyplot(fig); plt.close(fig); return
 
-                df_plot = _collapse_others(df, total_n=total_n, keep_top=7, tiny_cut=tiny_cut)
+                # 折叠“Others”（把极小类合并，减少过多扇区；阈值可调）
+                def _collapse_others(df_in: pd.DataFrame, keep_top=8, tiny=0.02):
+                    df_in = df_in.sort_values(["count","Class"], ascending=[False,True]).reset_index(drop=True)
+                    if len(df_in) <= keep_top: 
+                        return df_in
+                    frac = df_in["count"] / float(total_n)
+                    head = df_in.loc[frac >= tiny].head(keep_top-1)
+                    tail = pd.concat([df_in.loc[frac < tiny], df_in.loc[frac >= tiny].iloc[max(keep_top-1,0):]])
+                    if len(tail) > 0:
+                        others = pd.DataFrame([{
+                            "Class": "Others",
+                            "count": int(tail["count"].sum()),
+                            "share": round(float(tail["count"].sum())/float(total_n), 3)
+                        }])
+                        out = pd.concat([head, others], ignore_index=True)
+                    else:
+                        out = head
+                    s = float(out["count"].sum()) or 1.0
+                    out["share"] = (out["count"]/s).round(3)
+                    return out
+
+                df_plot = _collapse_others(df, keep_top=8, tiny=tiny_cut)
+
                 labels = df_plot["Class"].astype(str).tolist()
                 sizes  = df_plot["count"].astype(int).to_numpy()
                 fracs  = sizes / sizes.sum()
 
-                colors  = [PALETTE[i % len(PALETTE)] for i in range(len(labels))]
-                explode = [0.06 if f < small_cut else 0.0 for f in fracs]
+                colors = [PALETTE[i % len(PALETTE)] for i in range(len(labels))]
 
-                fig, ax = plt.subplots(figsize=(6.0,4.6))
-                res = ax.pie(
-                    sizes, startangle=110, counterclock=False,
-                    wedgeprops=dict(width=0.38, linewidth=0.8, edgecolor="white"),
-                    labels=None, autopct=None, colors=colors, explode=explode
+                # 小于 small_cut 的扇区不显示百分比，避免挤作一团
+                def _autopct(p):
+                    return f"{p:.0f}%" if (p/100.0) >= small_cut else ""
+
+                fig, ax = plt.subplots(figsize=(6.2, 4.8))
+                wedges, texts, autotexts = ax.pie(
+                    sizes,
+                    startangle=110, counterclock=False,
+                    colors=colors,
+                    labels=None,                        # 标签统一放图例
+                    autopct=_autopct,                   # 百分比只给“较大”扇区
+                    pctdistance=0.72,                   # 百分比文本靠内一点，减少重叠
+                    labeldistance=1.10,                 #（虽未显示labels，留默认布局）
+                    wedgeprops=dict(linewidth=0.9, edgecolor="white")  # 更清爽的边线
                 )
-                wedges = res[0]
 
-                def _mid_angle(w):  # radians
-                    return np.deg2rad(0.5*(w.theta1+w.theta2))
-
-                # 大扇区百分比放环内
-                for w, f in zip(wedges, fracs):
-                    if f >= small_cut:
-                        ang = _mid_angle(w)
-                        x, y = 0.62*np.cos(ang), 0.62*np.sin(ang)
-                        ax.text(x, y, f"{int(round(100*f))}%", ha="center", va="center", fontsize=10)
-
-                # 小扇区外置引线 + 防重叠（左右两列轨道）
-                small_idx = [i for i, f in enumerate(fracs) if f < small_cut]
-                if small_idx:
-                    info = [(i, _mid_angle(wedges[i]), np.sin(_mid_angle(wedges[i]))) for i in small_idx]
-                    left  = [t for t in info if np.cos(t[1]) < 0]
-                    right = [t for t in info if np.cos(t[1]) >= 0]
-                    left.sort(key=lambda x: -x[2]); right.sort(key=lambda x: -x[2])
-
-                    def place(lst, side=+1):
-                        n = len(lst); 
-                        if n == 0: return
-                        y_targets = np.linspace(0.9, -0.9, n)
-                        for (i, ang, _), y_tgt in zip(lst, y_targets):
-                            xw, yw = 0.86*np.cos(ang), 0.86*np.sin(ang)
-                            xmid, xend = 1.02*side, 1.22*side
-                            ax.plot([xw, xmid, xend], [yw, y_tgt, y_tgt], lw=0.8, color="black")
-                            ax.text(xend + 0.02*side, y_tgt, f"{labels[i]}  {int(round(100*fracs[i]))}%",
-                                    ha="left" if side>0 else "right", va="center", fontsize=9)
-
-                    place(left,  side=-1)
-                    place(right, side=+1)
-
+                # 右侧图例（不再画引线，避免交叉）
                 ax.legend(wedges, labels, title="Class", loc="center left",
-                          bbox_to_anchor=(1.02, 0.5), frameon=False, fontsize=9)
-                ax.axis("equal"); ax.set_title(title, pad=10)
+                        bbox_to_anchor=(1.02, 0.5), frameon=False, fontsize=9)
+
+                ax.axis("equal")
+                ax.set_title(title, pad=10)
                 st.pyplot(fig); plt.close(fig)
+
+        
 
         # —— 类别频率柱状图 —— 
         def _bar_from_df(col, df: pd.DataFrame, title: str):
@@ -578,11 +580,11 @@ if uploaded_file is not None:
                 fig.tight_layout(); st.pyplot(fig); plt.close(fig)
 
         # —— 三列环形饼图 —— 
-        st.subheader("Class share (pie)")
-        cols_pie = st.columns(3, gap="large")
-        _pie_donut(cols_pie[0], df_l1, "Level1 · class share", total_n=N)
-        _pie_donut(cols_pie[1], df_l2, "Level2 · class share", total_n=N)
-        _pie_donut(cols_pie[2], df_l3, "Level3 · class share", total_n=N)
+       
+        _pie_full(cols_pie[0], df_l1, "Level1 · class share", total_n=N)
+        _pie_full(cols_pie[1], df_l2, "Level2 · class share", total_n=N)
+        _pie_full(cols_pie[2], df_l3, "Level3 · class share", total_n=N)
+
 
         # —— 三列频率柱状图 —— 
         st.subheader("Class frequency (bars)")
