@@ -557,24 +557,46 @@ if uploaded_file is not None:
         st.subheader("Class frequency (bars)")
         cols_bar = st.columns(3, gap="large")
 
-        def _bar_from_df(col, df: pd.DataFrame, title: str, total_n: int, anno_size: int = 10, title_size: int = 13):
-            with col:
-                if df.empty or int(df["count"].sum()) == 0:
-                    st.info("No data"); return
-                fig, ax = plt.subplots(figsize=(6.4, 4.0))
-                x = df["Class"].astype(str).tolist()
-                y = df["count"].astype(int).tolist()
-                colors = [PALETTE[i % len(PALETTE)] for i in range(len(x))]
-                ax.bar(range(len(x)), y, edgecolor="black", color=colors)
-                ax.set_xticks(range(len(x)))
-                ax.set_xticklabels(x, rotation=30, ha="right")
-                ax.set_ylabel("Count"); ax.set_title(title, fontsize=title_size)
+        def _bar_from_df(
+                col,
+                df: pd.DataFrame,
+                title: str,
+                total_n: int,
+                anno_size: int = 10,
+                title_size: int = 13,
+                figsize=(8.5, 5.0),                # ← 图像更大
+                pad_top=0.92, pad_bottom=0.28,     # ← 上/下留白更大（容纳标题和斜着的类名）
+                pad_left=0.10, pad_right=0.98,
+                headroom=0.15                      # ← 顶部多留 15% 空间放标注
+            ):
+                with col:
+                    if df.empty or int(df["count"].sum()) == 0:
+                        st.info("No data"); return
 
-                ymax = max(max(y), 1)
-                for i, yi in enumerate(y):
-                    ax.text(i, yi + ymax * 0.02, f"{yi}/{total_n}", ha="center", va="bottom", fontsize=anno_size)
+                    fig, ax = plt.subplots(figsize=figsize)
 
-                fig.tight_layout(); st.pyplot(fig); plt.close(fig)
+                    x = df["Class"].astype(str).tolist()
+                    y = df["count"].astype(int).tolist()
+                    colors = [PALETTE[i % len(PALETTE)] for i in range(len(x))]
+                    ax.bar(range(len(x)), y, edgecolor="black", color=colors)
+
+                    ax.set_xticks(range(len(x)))
+                    ax.set_xticklabels(x, rotation=28, ha="right")   # 轻微倾斜避免挤
+                    ax.set_ylabel("Count")
+                    ax.set_title(title, fontsize=title_size)
+
+                    ymax = max(max(y), 1)
+                    ax.set_ylim(0, ymax * (1 + headroom))           # 顶部多留点空间给标注
+                    for i, yi in enumerate(y):
+                        ax.text(i, yi + ymax * 0.02, f"{yi}/{total_n}",
+                                ha="center", va="bottom", fontsize=anno_size)
+
+                    # 手动调节四周留白，让“框”更大更不被卡
+                    plt.subplots_adjust(left=pad_left, right=pad_right,
+                                        top=pad_top, bottom=pad_bottom)
+
+                    st.pyplot(fig); plt.close(fig)
+
 
         _bar_from_df(cols_bar[0], df_l1, "Level1 · frequency", total_n=N)
         _bar_from_df(cols_bar[1], df_l2, "Level2 · frequency", total_n=N)
