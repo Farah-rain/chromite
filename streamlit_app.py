@@ -285,7 +285,7 @@ if uploaded_file is not None:
             p2max[mask_lvl2] = p2max_masked
             p2unk[mask_lvl2] = 1.0 - p2max_masked
 
-        # 对未路由行：视为 Unclassified；Unclassified 概率=1；实类概率=0
+        # 未路由（L1 非 extraterrestrial）：视为 Unclassified
         prob2 = np.nan_to_num(prob2_raw, nan=0.0)
         empty2 = (pd.Series(pred2_label, dtype="object") == "")
         if empty2.any():
@@ -321,7 +321,7 @@ if uploaded_file is not None:
                     p = p * mask_allowed
                     s = p.sum()
                     if s > 0: p = p / s
-                # 类阈值
+                # 类阈值（若缺失→统一阈值）
                 if thr_L3 is not None:
                     pred_tmp, pmax_tmp = predict_with_classwise_thresholds(
                         proba_cal=p.reshape(1, -1),
@@ -339,7 +339,6 @@ if uploaded_file is not None:
                 p3unk[i_global] = 1.0 - p3max[i_global]
                 prob3_post[i_global] = p
 
-            # 未路由到 L3 的行：设为 Unclassified
             empty3 = (pd.Series(pred3_label, dtype="object") == "")
             if empty3.any():
                 pred3_label[empty3.values] = ABSTAIN_LABEL
@@ -355,7 +354,6 @@ if uploaded_file is not None:
         for i, c in enumerate(classes1): df_display[f"P_Level1_{c}"] = prob1[:, i]
         for i, c in enumerate(classes2): df_display[f"P_Level2_{c}"] = prob2[:, i]
 
-        # 只有当整组有样本路由到 L3 时才添加 L3 列
         if routed_to_L3:
             df_display.insert(3, "Level3_Pred", pred3_label)
             for i, c in enumerate(classes3):
@@ -364,25 +362,21 @@ if uploaded_file is not None:
         st.subheader("🧾 Predictions")
         st.dataframe(df_display)
 
-        # -------------------- 组内多数票 + 均值概率（Unclassified 参与；分母=N） --------------------
-        # L1（无 Unclassified）
+        # -------------------- 组内统计（写回表，便于导出） --------------------
         l1_label, l1_share, l1_mean = level_group_stats(
             labels=pred1_label, classes=classes1, prob_by_class=prob1,
             p_max=p1max, p_unknown=None, fill_unknown_for_empty=False
         )
-        # L2（有 Unclassified）
         l2_label, l2_share, l2_mean = level_group_stats(
             labels=pred2_label, classes=classes2, prob_by_class=prob2,
             p_max=p2max, p_unknown=p2unk, fill_unknown_for_empty=True
         )
-        # L3（只有当 routed_to_L3 为真时才计算）
         if routed_to_L3:
             l3_label, l3_share, l3_mean = level_group_stats(
                 labels=pred3_label, classes=classes3, prob_by_class=prob3_post,
                 p_max=p3max, p_unknown=p3unk, fill_unknown_for_empty=True
             )
 
-        # 把组级统计写回表（每行相同，便于导出/筛选）
         df_display["L1_TopShare"]    = l1_share
         df_display["L1_TopMeanProb"] = round(l1_mean, 3)
         df_display["L2_TopShare"]    = l2_share
@@ -391,53 +385,8 @@ if uploaded_file is not None:
             df_display["L3_TopShare"]    = l3_share
             df_display["L3_TopMeanProb"] = round(l3_mean, 3)
 
-        # -------------------- 🧩 Add Predictions to Training Pool? --------------------
-        st.subheader("🧩 Add Predictions to Training Pool?")
-        if st.checkbox("✅ Confirm to append these samples to the training pool for future retraining"):
-            df_save = df_input.copy()
-            df_save["Level1"] = pred1_label
-            df_save["Level2"] = pred2_label
-            if routed_to_L3:
-                df_save["Level3"] = pred3_label
-
-            local_path = "training_pool.csv"
-            header_needed = not os.path.exists(local_path)
-            df_save.to_csv(local_path, mode="a", header=header_needed, index=False, encoding="utf-8-sig")
-            st.success("✅ Samples appended to local training pool.")
-
-            try:
-                GITHUB_TOKEN = (
-                    st.secrets.get("gh_token")
-                    or (st.secrets.get("github", {}) or {}).get("token")
-                )
-                repo_owner = st.secrets.get("gh_repo_owner", "Farah-rain")
-                repo_name  = st.secrets.get("gh_repo_name",  "chromite")
-                dst_path   = st.secrets.get("gh_dst_path",   "training_pool.csv")
-                branch     = st.secrets.get("gh_branch",     "main")
-
-                if not GITHUB_TOKEN:
-                    st.info("GitHub token not configured (gh_token or github.token). Saved locally only.")
-                else:
-                    with open(local_path, "rb") as f:
-                        content_b64 = base64.b64encode(f.read()).decode("utf-8")
-                    url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{dst_path}"
-                    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
-                    r = requests.get(url, headers=headers)
-                    sha = r.json().get("sha") if r.status_code == 200 else None
-                    payload = {"message": "update training pool", "content": content_b64, "branch": branch}
-                    if sha: payload["sha"] = sha
-                    put_resp = requests.put(url, headers=headers, json=payload)
-                    if 200 <= put_resp.status_code < 300:
-                        st.success("✅ Synced to GitHub repository.")
-                    else:
-                        st.warning(f"⚠️ GitHub sync failed ({put_resp.status_code}): {put_resp.text[:300]}")
-            except Exception as e:
-                st.error(f"❌ GitHub sync error: {e}")
-
-        # -------------------- 📈 SHAP Interpretability --------------------
+        # -------------------- 📈 SHAP（3列并排，tabs 可横向滚动） --------------------
         st.subheader("📈 SHAP Interpretability")
-
-        # 让 tabs 出现横向滚动条（一次即可，三列都生效）
         st.markdown("""
         <style>
         .stTabs [data-baseweb="tab-list"]{
@@ -517,186 +466,158 @@ if uploaded_file is not None:
                         plt.title(f"{level_name} · {cname}")
                         st.pyplot(plt.gcf()); plt.close()
 
-        cols = st.columns(3)
-        for col, (mdl, nm) in zip(cols, [(model_lvl1, "Level1"), (model_lvl2, "Level2"), (model_lvl3, "Level3")]):
+        cols_shap = st.columns(3)
+        for col, (mdl, nm) in zip(cols_shap, [(model_lvl1, "Level1"), (model_lvl2, "Level2"), (model_lvl3, "Level3")]):
             with col:
                 st.markdown(f"#### 🔍 {nm} (per class)")
                 _render_per_class(mdl, nm, df_input)
 
-        # -------------------- 🧪 Specimen Confirmation & Group Result --------------------
-        st.subheader("🧪 Specimen Confirmation & Group Result")
-        same_specimen = st.checkbox("I confirm all uploaded rows originate from the same physical specimen.")
-        if same_specimen:
-            depth = {"Level1": 1, "Level2": 2, "Level3": 3}
-            cands = [
-                ("Level1", {"label": l1_label, "share": int(l1_share.split('/')[0]) / N, "prob": l1_mean,
-                            "agree": int(l1_share.split('/')[0]), "total": N}),
-                ("Level2", {"label": l2_label, "share": int(l2_share.split('/')[0]) / N, "prob": l2_mean,
-                            "agree": int(l2_share.split('/')[0]), "total": N}),
-            ]
-            if routed_to_L3:
-                cands.append(("Level3", {"label": l3_label, "share": int(l3_share.split('/')[0]) / N, "prob": l3_mean,
-                                         "agree": int(l3_share.split('/')[0]), "total": N}))
-            final_level, final = sorted(cands, key=lambda t: (t[1]["share"], t[1]["prob"], depth[t[0]]), reverse=True)[0]
-            st.success(
-                f"Final group result → **{final_level}: {final['label']}**  |  "
-                f"Probability (mean for this class): **{final['prob']:.3f}**  |  "
-                f"Share: **{final['agree']}/{final['total']} ({final['share']:.0%})**"
-            )
-            rows = [
-                {"Level": "Level1", "Top class": l1_label, "Share": l1_share, "Mean prob": round(l1_mean, 3)},
-                {"Level": "Level2", "Top class": l2_label, "Share": l2_share, "Mean prob": round(l2_mean, 3)},
-            ]
-            if routed_to_L3:
-                rows.append({"Level": "Level3", "Top class": l3_label, "Share": l3_share, "Mean prob": round(l3_mean, 3)})
-            st.dataframe(pd.DataFrame(rows))
-
-        # -------------------- 📊 Summary：三组并列（level1/2/3） --------------------
         # -------------------- 📊 Summary（三个纵列并排：Level1/2/3） --------------------
-st.subheader("📊 Summary (Level1 / Level2 / Level3)")
+        st.subheader("📊 Summary (Level1 / Level2 / Level3)")
 
-def _vc_df(labels: np.ndarray, total_n: int) -> pd.DataFrame:
-    s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
-    vc = s.value_counts(dropna=False)
-    df = vc.rename_axis("Class").reset_index(name="count")
-    df["share"] = (df["count"] / float(total_n)).round(3)
-    return df[["Class", "count", "share"]].sort_values(["count", "Class"], ascending=[False, True], ignore_index=True)
+        def _vc_df(labels: np.ndarray, total_n: int) -> pd.DataFrame:
+            s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
+            vc = s.value_counts(dropna=False)
+            df = vc.rename_axis("Class").reset_index(name="count")
+            df["share"] = (df["count"] / float(total_n)).round(3)
+            return df[["Class", "count", "share"]].sort_values(["count", "Class"], ascending=[False, True], ignore_index=True)
 
-# 用真实类别名做统计（不做“地球/地外”映射）
-df_l1 = _vc_df(pred1_label, N)
-df_l2 = _vc_df(pred2_label, N)
-df_l3 = _vc_df(pred3_label, N) if routed_to_L3 else pd.DataFrame({"Class": ["(not routed)"], "count": [0], "share": [0.0]})
+        df_l1 = _vc_df(pred1_label, N)
+        df_l2 = _vc_df(pred2_label, N)
+        df_l3 = _vc_df(pred3_label, N) if routed_to_L3 else pd.DataFrame({"Class": ["(not routed)"], "count": [0], "share": [0.0]})
 
-# 三个表并排展示（各自独立的纵列）
-cols_sum = st.columns(3, gap="large")
-with cols_sum[0]:
-    st.markdown("##### Level 1")
-    st.dataframe(df_l1, use_container_width=True)
-with cols_sum[1]:
-    st.markdown("##### Level 2")
-    st.dataframe(df_l2, use_container_width=True)
-with cols_sum[2]:
-    st.markdown("##### Level 3")
-    st.dataframe(df_l3, use_container_width=True)
+        cols_sum = st.columns(3, gap="large")
+        with cols_sum[0]:
+            st.markdown("##### Level 1")
+            st.dataframe(df_l1, use_container_width=True)
+        with cols_sum[1]:
+            st.markdown("##### Level 2")
+            st.dataframe(df_l2, use_container_width=True)
+        with cols_sum[2]:
+            st.markdown("##### Level 3")
+            st.dataframe(df_l3, use_container_width=True)
 
-# ---------- 饼图（自动引线 + 图例） ----------
-def _pie_from_df(col, df: pd.DataFrame, title: str):
-    with col:
-        labels = df["Class"].astype(str).tolist()
-        sizes = df["count"].astype(int).to_numpy()
-        fig, ax = plt.subplots(figsize=(3.8, 3.8))
-        if sizes.sum() == 0:
-            ax.text(0.5, 0.5, "No data", ha="center", va="center")
-            ax.axis("off")
-            st.pyplot(fig); plt.close(fig); return
-        # 若存在小块（<6%），把标签放到外侧并画引线
-        fracs = sizes / sizes.sum()
-        small = bool((fracs < 0.06).any())
-        labeldist = 1.15 if small else 1.05
-        pctdist   = 0.75 if small else 0.6
-        wedges, texts, autotexts = ax.pie(
-            sizes,
-            labels=labels,
-            autopct="%1.0f%%",
-            startangle=90,
-            counterclock=False,
-            labeldistance=labeldist,
-            pctdistance=pctdist
+        # ---------- 饼图（自动引线 + 图例） ----------
+        def _pie_from_df(col, df: pd.DataFrame, title: str):
+            with col:
+                labels = df["Class"].astype(str).tolist()
+                sizes = df["count"].astype(int).to_numpy()
+                fig, ax = plt.subplots(figsize=(3.8, 3.8))
+                if sizes.sum() == 0:
+                    ax.text(0.5, 0.5, "No data", ha="center", va="center")
+                    ax.axis("off")
+                    st.pyplot(fig); plt.close(fig); return
+                fracs = sizes / sizes.sum()
+                small = bool((fracs < 0.06).any())
+                labeldist = 1.18 if small else 1.05
+                pctdist   = 0.78 if small else 0.60
+                wedges, texts, autotexts = ax.pie(
+                    sizes,
+                    labels=labels,
+                    autopct="%1.0f%%",
+                    startangle=90,
+                    counterclock=False,
+                    labeldistance=labeldist,
+                    pctdistance=pctdist
+                )
+                # 图例放右侧
+                ax.legend(wedges, labels, title="Class", loc="center left",
+                          bbox_to_anchor=(1.02, 0.5), frameon=False)
+                ax.axis("equal")
+                ax.set_title(title)
+                st.pyplot(fig); plt.close(fig)
+
+        st.markdown("##### Class share (pie)")
+        cols_pie = st.columns(3, gap="large")
+        _pie_from_df(cols_pie[0], df_l1, "Level1 · class share")
+        _pie_from_df(cols_pie[1], df_l2, "Level2 · class share")
+        _pie_from_df(cols_pie[2], df_l3, "Level3 · class share")
+
+        # ---------- 三个频率柱状图 ----------
+        st.subheader("📉 Class Frequency Histogram (per level)")
+        def _bar_from_df(col, df: pd.DataFrame, title: str):
+            with col:
+                fig, ax = plt.subplots(figsize=(5.2, 3.6))
+                x = df["Class"].astype(str).tolist()
+                y = df["count"].astype(int).tolist()
+                ax.bar(range(len(x)), y, edgecolor="black")
+                ax.set_xticks(range(len(x))); ax.set_xticklabels(x, rotation=45, ha="right")
+                ax.set_ylabel("count"); ax.set_title(title)
+                st.pyplot(fig); plt.close(fig)
+
+        cols_hist = st.columns(3, gap="large")
+        _bar_from_df(cols_hist[0], df_l1, "Level1 · frequency")
+        _bar_from_df(cols_hist[1], df_l2, "Level2 · frequency")
+        _bar_from_df(cols_hist[2], df_l3, "Level3 · frequency")
+
+        # -------------------- 🧩 Add to Training Pool（在直方图之后、下载之前） --------------------
+        st.subheader("🧩 Add Predictions to Training Pool?")
+        if st.checkbox("✅ Confirm to append these samples to the training pool for future retraining"):
+            df_save = df_input.copy()
+            df_save["Level1"] = pred1_label
+            df_save["Level2"] = pred2_label
+            if routed_to_L3:
+                df_save["Level3"] = pred3_label
+
+            local_path = "training_pool.csv"
+            header_needed = not os.path.exists(local_path)
+            df_save.to_csv(local_path, mode="a", header=header_needed, index=False, encoding="utf-8-sig")
+            st.success("✅ Samples appended to local training pool.")
+            try:
+                GITHUB_TOKEN = (
+                    st.secrets.get("gh_token")
+                    or (st.secrets.get("github", {}) or {}).get("token")
+                )
+                repo_owner = st.secrets.get("gh_repo_owner", "Farah-rain")
+                repo_name  = st.secrets.get("gh_repo_name",  "chromite")
+                dst_path   = st.secrets.get("gh_dst_path",   "training_pool.csv")
+                branch     = st.secrets.get("gh_branch",     "main")
+                if not GITHUB_TOKEN:
+                    st.info("GitHub token not configured (gh_token or github.token). Saved locally only.")
+                else:
+                    with open(local_path, "rb") as f:
+                        content_b64 = base64.b64encode(f.read()).decode("utf-8")
+                    url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{dst_path}"
+                    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+                    r = requests.get(url, headers=headers)
+                    sha = r.json().get("sha") if r.status_code == 200 else None
+                    payload = {"message": "update training pool", "content": content_b64, "branch": branch}
+                    if sha: payload["sha"] = sha
+                    put_resp = requests.put(url, headers=headers, json=payload)
+                    if 200 <= put_resp.status_code < 300:
+                        st.success("✅ Synced to GitHub repository.")
+                    else:
+                        st.warning(f"⚠️ GitHub sync failed ({put_resp.status_code}): {put_resp.text[:300]}")
+            except Exception as e:
+                st.error(f"❌ GitHub sync error: {e}")
+
+        # -------------------- 导出：Prediction + 三个纵列 Summary（并排落列） --------------------
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            # 明细
+            df_display.to_excel(writer, index=False, sheet_name='Prediction')
+            # 三列并排的大表（按你的草图）
+            ws = "Summary_3cols"
+            df_l1.to_excel(writer, index=False, sheet_name=ws, startrow=1, startcol=0)
+            df_l2.to_excel(writer, index=False, sheet_name=ws, startrow=1, startcol=5)
+            df_l3.to_excel(writer, index=False, sheet_name=ws, startrow=1, startcol=10)
+            wb = writer.book; ws_obj = writer.sheets[ws]
+            ws_obj.write(0, 0, "level1"); ws_obj.write(0, 5, "level2"); ws_obj.write(0, 10, "level3")
+            # 各层各一张明细
+            df_l1.assign(Level="Level1")[["Level","Class","count","share"]].to_excel(writer, index=False, sheet_name="Summary_L1")
+            df_l2.assign(Level="Level2")[["Level","Class","count","share"]].to_excel(writer, index=False, sheet_name="Summary_L2")
+            if routed_to_L3:
+                df_l3.assign(Level="Level3")[["Level","Class","count","share"]].to_excel(writer, index=False, sheet_name="Summary_L3")
+
+        st.download_button(
+            label="📥 Download Predictions (Excel)",
+            data=output.getvalue(),
+            file_name="prediction_results.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        # 图例放右侧
-        ax.legend(wedges, labels, title="Class", loc="center left",
-                  bbox_to_anchor=(1.02, 0.5), frameon=False)
-        ax.axis("equal")
-        ax.set_title(title)
-        st.pyplot(fig); plt.close(fig)
 
-st.markdown("##### Class share (pie)")
-cols_pie = st.columns(3, gap="large")
-_pie_from_df(cols_pie[0], df_l1, "Level1 · class share")
-_pie_from_df(cols_pie[1], df_l2, "Level2 · class share")
-_pie_from_df(cols_pie[2], df_l3, "Level3 · class share")
-
-# ---------- 三个频率“直方图”（离散类→柱状图） ----------
-st.subheader("📉 Class Frequency Histogram (per level)")
-def _bar_from_df(col, df: pd.DataFrame, title: str):
-    with col:
-        fig, ax = plt.subplots(figsize=(5.2, 3.6))
-        x = df["Class"].astype(str).tolist()
-        y = df["count"].astype(int).tolist()
-        ax.bar(range(len(x)), y, edgecolor="black")
-        ax.set_xticks(range(len(x))); ax.set_xticklabels(x, rotation=45, ha="right")
-        ax.set_ylabel("count"); ax.set_title(title)
-        st.pyplot(fig); plt.close(fig)
-
-cols_hist = st.columns(3, gap="large")
-_ bar_from_df = _bar_from_df  # 仅为对齐视觉的别名，可删
-_bar_from_df(cols_hist[0], df_l1, "Level1 · frequency")
-_bar_from_df(cols_hist[1], df_l2, "Level2 · frequency")
-_bar_from_df(cols_hist[2], df_l3, "Level3 · frequency")
-
-# -------------------- 🧩 Add to Training Pool（移动到这里，直方图之后、下载之前） --------------------
-st.subheader("🧩 Add Predictions to Training Pool?")
-if st.checkbox("✅ Confirm to append these samples to the training pool for future retraining"):
-    df_save = df_input.copy()
-    df_save["Level1"] = pred1_label
-    df_save["Level2"] = pred2_label
-    if routed_to_L3:
-        df_save["Level3"] = pred3_label
-
-    local_path = "training_pool.csv"
-    header_needed = not os.path.exists(local_path)
-    df_save.to_csv(local_path, mode="a", header=header_needed, index=False, encoding="utf-8-sig")
-    st.success("✅ Samples appended to local training pool.")
-    try:
-        GITHUB_TOKEN = (
-            st.secrets.get("gh_token")
-            or (st.secrets.get("github", {}) or {}).get("token")
-        )
-        repo_owner = st.secrets.get("gh_repo_owner", "Farah-rain")
-        repo_name  = st.secrets.get("gh_repo_name",  "chromite")
-        dst_path   = st.secrets.get("gh_dst_path",   "training_pool.csv")
-        branch     = st.secrets.get("gh_branch",     "main")
-        if not GITHUB_TOKEN:
-            st.info("GitHub token not configured (gh_token or github.token). Saved locally only.")
-        else:
-            with open(local_path, "rb") as f:
-                content_b64 = base64.b64encode(f.read()).decode("utf-8")
-            url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{dst_path}"
-            headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
-            r = requests.get(url, headers=headers)
-            sha = r.json().get("sha") if r.status_code == 200 else None
-            payload = {"message": "update training pool", "content": content_b64, "branch": branch}
-            if sha: payload["sha"] = sha
-            put_resp = requests.put(url, headers=headers, json=payload)
-            if 200 <= put_resp.status_code < 300:
-                st.success("✅ Synced to GitHub repository.")
-            else:
-                st.warning(f"⚠️ GitHub sync failed ({put_resp.status_code}): {put_resp.text[:300]}")
     except Exception as e:
-        st.error(f"❌ GitHub sync error: {e}")
-
-# -------------------- 导出：Prediction + 三个纵列的 Summary（并排写到同一张表），另附各层明细 --------------------
-output = BytesIO()
-with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-    # 明细
-    df_display.to_excel(writer, index=False, sheet_name='Prediction')
-    # 把三个纵列并排写到一张工作表（你草图那种布局）
-    ws = "Summary_3cols"
-    df_l1.to_excel(writer, index=False, sheet_name=ws, startrow=1, startcol=0)
-    df_l2.to_excel(writer, index=False, sheet_name=ws, startrow=1, startcol=5)
-    df_l3.to_excel(writer, index=False, sheet_name=ws, startrow=1, startcol=10)
-    # 顶部标题
-    wb = writer.book; ws_obj = writer.sheets[ws]
-    ws_obj.write(0, 0, "level1"); ws_obj.write(0, 5, "level2"); ws_obj.write(0, 10, "level3")
-    # 另外各层各一张明细
-    df_l1.assign(Level="Level1")[["Level","Class","count","share"]].to_excel(writer, index=False, sheet_name="Summary_L1")
-    df_l2.assign(Level="Level2")[["Level","Class","count","share"]].to_excel(writer, index=False, sheet_name="Summary_L2")
-    if routed_to_L3:
-        df_l3.assign(Level="Level3")[["Level","Class","count","share"]].to_excel(writer, index=False, sheet_name="Summary_L3")
-
-st.download_button(
-    label="📥 Download Predictions (Excel)",
-    data=output.getvalue(),
-    file_name="prediction_results.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
+        st.error("Error while processing the uploaded file.")
+        st.exception(e)
+else:
+    st.info("Please upload a data file to proceed.")
