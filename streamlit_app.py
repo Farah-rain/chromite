@@ -735,15 +735,11 @@ if uploaded_file is not None:
                 )
                 plt.close(fig)
 
-        col1, col2, col3 = st.columns(3, gap="large")
-        _bar_from_df(col1, df_l1.sort_values(["count","Class"], ascending=[False,True]), "Level1 · frequency", total_n=N)
-        _bar_from_df(col2, df_l2_ext.sort_values(["count","Class"], ascending=[False,True]),
-                    "Level2 · frequency (Extraterrestrial only)", total_n=N_L2)
-        _bar_from_df(col3, df_l3_oc.sort_values(["count","Class"], ascending=[False,True]),
-             "Level3-OC · frequency", total_n=N_L3_OC)
-        col3.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-        _bar_from_df(col3, df_l3_cc.sort_values(["count","Class"], ascending=[False,True]),
-                    "Level3-CC · frequency", total_n=N_L3_CC)
+        cols_pie = st.columns(4, gap="large")
+        _pie_full(cols_pie[0], df_l1,    "Level1 · class share",                           total_n=int(df_l1["count"].sum()))
+        _pie_full(cols_pie[1], df_l2,    "Level2 · class share (Extraterrestrial only)",   total_n=N_L2)
+        _pie_full(cols_pie[2], df_l3_oc, "Level3-OC · class share",                        total_n=N_L3_OC)
+        _pie_full(cols_pie[3], df_l3_cc, "Level3-CC · class share",                        total_n=N_L3_CC)
 
 
 
