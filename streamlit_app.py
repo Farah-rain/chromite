@@ -115,49 +115,81 @@ def _model_signature(model) -> str:
     return f"{model.__class__.__name__}|{hash(params_tup)}|{hash(classes)}"
 
 def preprocess_uploaded_data(df):
-    MW = {'TiO2':79.866,'Al2O3':101.961,'Cr2O3':151.99,'FeO':71.844,'MnO':70.937,'MgO':40.304,'ZnO':81.38,'SiO2':60.0843,'V2O3':149.88}
-    O_num={'TiO2':2,'Al2O3':3,'Cr2O3':3,'FeO':1,'MnO':1,'MgO':1,'ZnO':1,'SiO2':2,'V2O3':3}
-    Cat_num={'TiO2':1,'Al2O3':2,'Cr2O3':2,'FeO':1,'MnO':1,'MgO':1,'ZnO':1,'SiO2':1,'V2O3':2}
+    """数据预处理：兼容 FeOT 缺失的拆分；派生特征生成（列名与现有逻辑一致）。"""
+    # 分子量
+    mol_wt = {
+        'TiO2': 79.866, 'Al2O3': 101.961, 'Cr2O3': 151.99, 'FeO': 71.844, 'MnO': 70.937,
+        'MgO': 40.304, 'ZnO': 81.38, 'SiO2': 60.0843, 'V2O3': 149.88, 'Fe2O3': 159.688
+    }
+    # 氧/阳离子个数（spinel 基础）
+    O_num  = {'TiO2':2,'Al2O3':3,'Cr2O3':3,'FeO':1,'MnO':1,'MgO':1,'ZnO':1,'SiO2':2,'V2O3':3}
+    Cat_num= {'TiO2':1,'Al2O3':2,'Cr2O3':2,'FeO':1,'MnO':1,'MgO':1,'ZnO':1,'SiO2':1,'V2O3':2}
+
+    # Fe2O3 ⇄ FeO 的等价换算（按铁当量）
     FE2O3_OVER_FEO_FE_EQ = 159.688 / (2 * 71.844)
 
-    for ox in MW:
-        if ox not in df.columns: df[ox] = 0.0
+    # 缺列补 0，保持你现有特征对齐逻辑
+    for ox in ['TiO2','Al2O3','Cr2O3','FeO','Fe2O3','MnO','MgO','ZnO','SiO2','V2O3','FeOT']:
+        if ox not in df.columns:
+            df[ox] = 0.0
     df = df.copy()
 
-    if "FeO" in df.columns and "Fe2O3" in df.columns:
+    # —— FeOT → FeO/Fe2O3 拆分（如果原始就有 FeO/Fe2O3，则直接沿用）——
+    if "FeO" in df.columns and "Fe2O3" in df.columns and (df["FeO"].notna().any() or df["Fe2O3"].notna().any()):
         df = df.rename(columns={"FeO": "FeOre", "Fe2O3": "Fe2O3re"})
         df["FeO_total"] = df["FeOre"] + df["Fe2O3re"] * 0.8998
     else:
         def fe_split_spinel(row, O_basis=32):
+            # 用 FeOT 拆分 Fe2+ / Fe3+
             val_feot = 0.0 if pd.isna(row.get('FeOT', np.nan)) else float(row.get('FeOT'))
-            moles = {ox: row[ox]/MW[ox] for ox in MW if ox != 'FeO'}
-            moles['FeO'] = val_feot / MW['FeO']
-            O_total = sum(moles[ox]*O_num[ox] for ox in moles)
-            fac = O_basis / O_total if O_total>0 else 0.0
-            cations = {ox: moles[ox]*Cat_num[ox]*fac for ox in moles}
-            S = sum(cations.values()); T = 24.0
-            Fe_total = cations['FeO']
-            Fe3 = max(0.0, 2*O_basis*(1 - T/S)) if S>0 else 0.0
-            Fe3 = min(Fe3, Fe_total); Fe2 = Fe_total - Fe3
-            Fe2_frac = Fe2/Fe_total if Fe_total>0 else 0.0
-            Fe3_frac = Fe3/Fe_total if Fe_total>0 else 0.0
+            # 先把各氧化物转为 “摩尔数”
+            moles = {ox: row.get(ox, 0.0) / mol_wt[ox] for ox in mol_wt if ox != 'Fe2O3'}
+            # 用 FeOT 代替 FeO 的质量去算 Fe 的总摩尔
+            moles['FeO'] = val_feot / mol_wt['FeO']
+
+            # 以 O=32 归一化
+            O_total = sum(moles[ox] * O_num.get(ox, 0) for ox in moles)
+            fac = O_basis / O_total if O_total > 0 else 0.0
+            cations = {ox: moles[ox] * Cat_num.get(ox, 0) * fac for ox in moles}
+
+            S = sum(cations.values()); T = 24.0  # spinel 24 阳离子
+            Fe_total = cations['FeO'] if 'FeO' in cations else 0.0
+            Fe3 = max(0.0, 2 * O_basis * (1 - T / S)) if S > 0 else 0.0
+            Fe3 = min(Fe3, Fe_total)
+            Fe2 = Fe_total - Fe3
+
+            Fe2_frac = Fe2 / Fe_total if Fe_total > 0 else 0.0
+            Fe3_frac = Fe3 / Fe_total if Fe_total > 0 else 0.0
+
+            # 还原回质量分数（与原逻辑一致）
             FeO_wt   = Fe2_frac * val_feot
             Fe2O3_wt = Fe3_frac * val_feot * FE2O3_OVER_FEO_FE_EQ
-            return pd.Series({'FeOre':FeO_wt,'Fe2O3re':Fe2O3_wt,'Fe2_frac':Fe2_frac,'Fe3_frac':Fe3_frac,'FeO_total':FeO_wt+Fe2O3_wt*0.8998})
+            return pd.Series({
+                'FeOre': FeO_wt,
+                'Fe2O3re': Fe2O3_wt,
+                'Fe2_frac': Fe2_frac,
+                'Fe3_frac': Fe3_frac,
+                'FeO_total': FeO_wt + Fe2O3_wt * 0.8998
+            })
+
         df = df.join(df.apply(fe_split_spinel, axis=1))
 
-    mol_wt = {'Cr2O3':151.99,'Al2O3':101.961,'MgO':40.304,'FeO':71.844,'Fe2O3':159.688}
-    Cr_mol = df["Cr2O3"]/mol_wt["Cr2O3"]*2
-    Al_mol = df["Al2O3"]/mol_w["Al2O3"]*2
-    Mg_mol = df["MgO"]/mol_wt["MgO"]
-    Fe2_mol = df["FeOre"]/mol_wt["FeO"]
-    Fe3_mol = df["Fe2O3re"]/mol_wt["Fe2O3"]*2
+    # —— 派生特征（保持你之前的定义）——
+    Cr_mol  = df["Cr2O3"]  / mol_wt["Cr2O3"] * 2
+    Al_mol  = df["Al2O3"]  / mol_wt["Al2O3"] * 2
+    Mg_mol  = df["MgO"]    / mol_wt["MgO"]
+    Fe2_mol = df["FeOre"]  / mol_wt["FeO"]
+    Fe3_mol = df["Fe2O3re"]/ mol_wt["Fe2O3"] * 2
 
     df["Cr#"] = Cr_mol / (Cr_mol + Al_mol)
     df["Mg#"] = Mg_mol / (Mg_mol + Fe2_mol)
     df["Fe*"] = Fe3_mol / (Fe3_mol + Cr_mol + Al_mol)
     df["Fe#"] = Fe2_mol / (Fe2_mol + Mg_mol)
+
     return df
+
+
+
 
 def to_numeric_df(df):
     return df.apply(pd.to_numeric, errors="coerce")
