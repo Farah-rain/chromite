@@ -565,7 +565,7 @@ if uploaded_file is not None:
                 rows.append({"Level": "Level3", "Top class": l3_label, "Share": l3_share, "Mean prob": round(l3_mean, 3)})
             st.dataframe(pd.DataFrame(rows))
 
-        # -------------------- 训练池 & GitHub 同步 --------------------
+                # -------------------- 训练池 & GitHub 同步 --------------------
         st.subheader("🧩 Add Predictions to Training Pool?")
         if st.checkbox("✅ Confirm to append these samples to the training pool for future retraining"):
             df_save = df_input.copy()
@@ -579,6 +579,7 @@ if uploaded_file is not None:
             df_save.to_csv(local_path, mode="a", header=header_needed, index=False, encoding="utf-8-sig")
             st.success("✅ Samples appended to local training pool.")
 
+            # —— GitHub 同步（内层 try/except 完整配对）——
             try:
                 GITHUB_TOKEN = (
                     st.secrets.get("gh_token")
@@ -608,9 +609,7 @@ if uploaded_file is not None:
             except Exception as e:
                 st.error(f"❌ GitHub sync error: {e}")
 
-        # -------------------- 📊 分类汇总表（Level1/2/3） --------------------
-        
-        # -------------------- 📊 Summary（3列并排，每列表格+饼图） --------------------
+        # -------------------- 📊 Summary（3列并排：表格 + 饼图） --------------------
         st.subheader("📊 Summary by Level (side-by-side)")
 
         def _vc_df(labels: np.ndarray, total_n: int) -> pd.DataFrame:
@@ -618,11 +617,9 @@ if uploaded_file is not None:
             vc = s.value_counts(dropna=False)
             df = vc.rename_axis("Class").reset_index(name="Count")
             df["Share"] = (df["Count"] / float(total_n)).round(3)
-            # 列顺序：Level 导出时再补；此处表内仅 Class/Count/Share
             return df[["Class", "Count", "Share"]]
 
         def _collapse_top_k_for_pie(df: pd.DataFrame, k: int = 8) -> pd.DataFrame:
-            """避免饼图切片过多；>k 时把尾部汇为 Others。"""
             if len(df) <= k:
                 return df.copy()
             head = df.sort_values(["Count", "Class"], ascending=[False, True]).head(k - 1).copy()
@@ -639,21 +636,18 @@ if uploaded_file is not None:
             sizes = df["Count"].astype(int).to_numpy()
             if sizes.sum() == 0:
                 ax.text(0.5, 0.5, "No data", ha="center", va="center"); ax.axis("off"); return
-            ax.pie(
-                sizes, labels=labels, autopct="%1.0f%%", startangle=90
-            )
+            ax.pie(sizes, labels=labels, autopct="%1.0f%%", startangle=90)
             ax.axis("equal")
             ax.set_title(title)
 
-        # ===== Level1：Earth vs Extraterrestrial（表 + 饼图） =====
+        # Level1 -> Earth vs Extraterrestrial
         l1_series = pd.Series(pred1_label, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
         ext_cnt = int(l1_series.str.lower().eq("extraterrestrial").sum())
         ter_cnt = int(len(l1_series) - ext_cnt)
-        df_l1 = pd.DataFrame({"Class": ["Extraterrestrial", "Terrestrial"],
-                              "Count": [ext_cnt, ter_cnt]})
+        df_l1 = pd.DataFrame({"Class": ["Extraterrestrial", "Terrestrial"], "Count": [ext_cnt, ter_cnt]})
         df_l1["Share"] = (df_l1["Count"] / float(N)).round(3)
 
-        # ===== Level2/Level3：按类统计 =====
+        # Level2/Level3
         df_l2 = _vc_df(pred2_label, N).sort_values(["Count", "Class"], ascending=[False, True], ignore_index=True)
         if routed_to_L3:
             df_l3 = _vc_df(pred3_label, N).sort_values(["Count", "Class"], ascending=[False, True], ignore_index=True)
@@ -661,21 +655,18 @@ if uploaded_file is not None:
             df_l3 = pd.DataFrame({"Class": ["(not routed)"], "Count": [0], "Share": [0.0]})
 
         cols_sum = st.columns(3, gap="large")
-
         with cols_sum[0]:
             st.markdown("##### Level 1")
             st.dataframe(df_l1, use_container_width=True)
             fig1, ax1 = plt.subplots(figsize=(3.6, 3.6))
             _pie_from_df(ax1, df_l1, "Level1 · Earth vs Extraterrestrial")
             st.pyplot(fig1); plt.close(fig1)
-
         with cols_sum[1]:
             st.markdown("##### Level 2")
             st.dataframe(df_l2, use_container_width=True)
             fig2, ax2 = plt.subplots(figsize=(3.6, 3.6))
             _pie_from_df(ax2, _collapse_top_k_for_pie(df_l2), "Level2 · Class share")
             st.pyplot(fig2); plt.close(fig2)
-
         with cols_sum[2]:
             st.markdown("##### Level 3")
             st.dataframe(df_l3, use_container_width=True)
@@ -683,11 +674,9 @@ if uploaded_file is not None:
             _pie_from_df(ax3, _collapse_top_k_for_pie(df_l3), "Level3 · Class share")
             st.pyplot(fig3); plt.close(fig3)
 
-        # -------------------- 📉 类别“频率直方图”（离散类 → 柱状图） --------------------
+        # -------------------- 📉 类别频率“直方图”（离散类→柱状图） --------------------
         st.subheader("📉 Class Frequency Histogram")
-
         cols_hist = st.columns(3, gap="large")
-
         def _bar_from_df(col, df: pd.DataFrame, title: str):
             with col:
                 fig, ax = plt.subplots(figsize=(5.2, 3.4))
@@ -699,7 +688,6 @@ if uploaded_file is not None:
                 ax.set_ylabel("Count")
                 ax.set_title(title)
                 st.pyplot(fig); plt.close(fig)
-
         _bar_from_df(cols_hist[0], df_l1, "Level1 · Earth vs Extraterrestrial")
         _bar_from_df(cols_hist[1], df_l2, "Level2 · by Class")
         if routed_to_L3 and not (len(df_l3) == 1 and df_l3.iloc[0, 0] == "(not routed)"):
@@ -712,12 +700,10 @@ if uploaded_file is not None:
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_display.to_excel(writer, index=False, sheet_name='Prediction')
-
             df_l1_export = df_l1.copy(); df_l1_export.insert(0, "Level", "Level1")
             df_l2_export = df_l2.copy(); df_l2_export.insert(0, "Level", "Level2")
             df_l1_export.to_excel(writer, index=False, sheet_name='Summary_L1')
             df_l2_export.to_excel(writer, index=False, sheet_name='Summary_L2')
-
             if routed_to_L3:
                 df_l3_export = df_l3.copy(); df_l3_export.insert(0, "Level", "Level3")
                 df_l3_export.to_excel(writer, index=False, sheet_name='Summary_L3')
@@ -728,4 +714,3 @@ if uploaded_file is not None:
             file_name="prediction_results.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
