@@ -475,23 +475,41 @@ if uploaded_file is not None:
 
         # -------------------- 饼图 + 直方图 + 下载 PNG --------------------
         # -------------------- Classification summary (tables) --------------------
+# -------------------- 📋 Classification summary (tables) --------------------
         st.subheader("📋 Classification summary (tables)")
 
-        def _show_table(col, df: pd.DataFrame, level_name: str):
-            with col:
-                if df.empty or int(df["count"].sum()) == 0:
-                    st.info("No data")
-                else:
-                    df_show = df.copy()
-                    # 列名统一；Level 列放在最前
-                    df_show.rename(columns={"count": "Count", "share": "Share"}, inplace=True)
-                    df_show.insert(0, "Level", level_name)
-                    st.dataframe(df_show[["Level", "Class", "Count", "Share"]], use_container_width=True)
+        def _prep_table(df: pd.DataFrame, level_name: str) -> pd.DataFrame:
+            """把输入 df_l* 规范成 [Level, Class, Count, Share] 顺序；安全处理空表/缺列。"""
+            if df is None or df.empty or int(pd.to_numeric(df.get("count", pd.Series([0])), errors="coerce").sum()) == 0:
+                return pd.DataFrame(columns=["Level", "Class", "Count", "Share"])
+
+            d = df.copy()
+            # 统一列名
+            if "count" in d.columns: d.rename(columns={"count": "Count"}, inplace=True)
+            if "share" in d.columns: d.rename(columns={"share": "Share"}, inplace=True)
+
+            # 确保列存在
+            for col in ["Class", "Count", "Share"]:
+                if col not in d.columns:
+                    d[col] = 0 if col == "Count" else ("" if col == "Class" else 0.0)
+
+            # 类型与保留小数
+            d["Count"] = pd.to_numeric(d["Count"], errors="coerce").fillna(0).astype(int)
+            d["Share"] = pd.to_numeric(d["Share"], errors="coerce").fillna(0.0).astype(float).round(3)
+
+            # Level 列放最前
+            d.insert(0, "Level", level_name)
+            return d[["Level", "Class", "Count", "Share"]]
 
         cols_tbl = st.columns(3, gap="large")
-        _show_table(cols_tbl[0], df_l1, "Level1")
-        _show_table(cols_tbl[1], df_l2, "Level2")
-        _show_table(cols_tbl[2], df_l3, "Level3")
+        for col, (df_lv, name) in zip(cols_tbl, [(df_l1, "Level1"), (df_l2, "Level2"), (df_l3, "Level3")]):
+            with col:
+                tbl = _prep_table(df_lv, name)
+                if tbl.empty:
+                    st.info("No data")
+                else:
+                    st.dataframe(tbl, use_container_width=True)
+
 
         st.subheader("Class share (pie)")
 
