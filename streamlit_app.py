@@ -695,10 +695,11 @@ if uploaded_file is not None:
         col1, col2, col3 = st.columns(3, gap="large")
         _pie_full(col1, df_l1,     "Level1 · class share", total_n=N)
         _pie_full(col2, df_l2_ext, "Level2 · class share (Extraterrestrial only)", total_n=N_L2)
-        with col3:
-            _pie_full(st, df_l3_oc, "Level3-OC · class share", total_n=N_L3_OC)
-            st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-            _pie_full(st, df_l3_cc, "Level3-CC · class share", total_n=N_L3_CC)
+        _pie_full(col3, df_l3_oc, "Level3-OC · class share", total_n=N_L3_OC)
+        col3.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        _pie_full(col3, df_l3_cc, "Level3-CC · class share", total_n=N_L3_CC)
+
+        
 
         # -------------------- ☄️ Class frequency (bars)（修正版：按分组分母） --------------------
         st.subheader("☄️Class frequency (bars)")
@@ -738,12 +739,12 @@ if uploaded_file is not None:
         _bar_from_df(col1, df_l1.sort_values(["count","Class"], ascending=[False,True]), "Level1 · frequency", total_n=N)
         _bar_from_df(col2, df_l2_ext.sort_values(["count","Class"], ascending=[False,True]),
                     "Level2 · frequency (Extraterrestrial only)", total_n=N_L2)
-        with col3:
-            _bar_from_df(st, df_l3_oc.sort_values(["count","Class"], ascending=[False,True]),
-                        "Level3-OC · frequency", total_n=N_L3_OC)
-            st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-            _bar_from_df(st, df_l3_cc.sort_values(["count","Class"], ascending=[False,True]),
-                        "Level3-CC · frequency", total_n=N_L3_CC)
+        _bar_from_df(col3, df_l3_oc.sort_values(["count","Class"], ascending=[False,True]),
+             "Level3-OC · frequency", total_n=N_L3_OC)
+        col3.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        _bar_from_df(col3, df_l3_cc.sort_values(["count","Class"], ascending=[False,True]),
+                    "Level3-CC · frequency", total_n=N_L3_CC)
+
 
 
         
