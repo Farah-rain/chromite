@@ -501,12 +501,27 @@ if uploaded_file is not None:
         df_l3_oc = _vc_l3_subset(mask_OC)
         df_l3_cc = _vc_l3_subset(mask_CC)
         # 一个“合并版”保持兼容（你后面原有导出仍会写 Summary_L3）
-        df_l3 = pd.concat([df_l3_oc, df_l3_cc], ignore_index=True).groupby("Class", as_index=False).sum()
-        if not df_l3.empty:
-            total = int(df_l3["count"].sum()) or 1
-            df_l3["share"] = (df_l3["count"]/total).round(3)
-            df_l3 = df_l3.sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
 
+
+        df_l3 = pd.concat([df_l3_oc, df_l3_cc], ignore_index=True) \
+                .groupby("Class", as_index=False).sum()
+
+        if not df_l3.empty:
+            # ① 这里把 count 列变成纯数值，非数值→NaN→0
+            df_l3["count"] = pd.to_numeric(df_l3["count"], errors="coerce").fillna(0)
+
+            # ② 分母确保是 float，且至少为 1 防止除零
+            total = int(df_l3["count"].sum()) or 1
+            denom = float(total)
+
+            # ③ 再去计算 share
+            df_l3["share"] = (df_l3["count"].astype(float) / denom).round(3)
+
+            # 如果你后面还有排序，也放在这里
+            df_l3 = df_l3.sort_values(["count", "Class"], ascending=[False, True], ignore_index=True)
+
+
+       
 
         # ===================== 📋 Classification summary (tables)  =====================
 
