@@ -596,24 +596,27 @@ if uploaded_file is not None:
 
         # ===================== 🪐 Class share (pie)  =====================
 
+
         st.subheader("🪐 Class share (pie)")
 
         def _vc_df(labels: np.ndarray, total_n: int | None = None) -> pd.DataFrame:
+            """把标签向量转换为 {Class, count, share}，share 的分母可指定 total_n。"""
             s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
             vc = s.value_counts(dropna=False)
             df = vc.rename_axis("Class").reset_index(name="count")
-            denom = float(total_n if (total_n is not None and total_n > 0) else (len(s) if len(s) else 1))
+            denom = float(total_n if (total_n is not None and total_n > 0)
+                        else (len(s) if len(s) else 1))
             df["share"] = (df["count"] / denom).round(3)
             return df[["Class", "count", "share"]]
 
         # 四个饼图的数据：L1 / L2(地外) / L3-OC / L3-CC
         df_pie_l1   = _vc_df(pred1_label)
-        df_pie_l2   = _vc_df(pred2_label[mask_L2], total_n=N_L2) if N_L2 > 0 else pd.DataFrame(columns=["Class","count","share"])
+        df_pie_l2   = _vc_df(pred2_label[mask_L2],    total_n=N_L2)    if N_L2    > 0 else pd.DataFrame(columns=["Class","count","share"])
         df_pie_l3oc = _vc_df(pred3_label[mask_L3_OC], total_n=N_L3_OC) if N_L3_OC > 0 else pd.DataFrame(columns=["Class","count","share"])
         df_pie_l3cc = _vc_df(pred3_label[mask_L3_CC], total_n=N_L3_CC) if N_L3_CC > 0 else pd.DataFrame(columns=["Class","count","share"])
 
         def _fmt_frac(sh: float) -> str:
-            # 百分比显示：大值粗略，小值保留更多位
+            """图例用百分比字符串：大值粗略，小值保留更多位。"""
             if sh >= 0.10:     # ≥10%
                 return f"{sh:.0%}"
             elif sh >= 0.01:   # 1%–10%
@@ -625,40 +628,49 @@ if uploaded_file is not None:
 
         def _pie_full(col, df: pd.DataFrame, title: str, total_n: int,
                     small_cut: float = 0.06, tiny_cut: float = 0.02):
-            with col:
-                if df.empty or int(df["count"].sum() or 0) == 0 or total_n == 0:
-                    fig, ax = plt.subplots(figsize=(4.8*chart_scale, 4.0*chart_scale))
-                    ax.text(0.5, 0.5, "No data", ha="center", va="center"); ax.axis("off")
-                    st.pyplot(fig); plt.close(fig); return
+            """
+            统一『No data』风格（与柱状图一致）；合并极小扇区到 Others 只用于可视化，
+            图例里的 share 始终使用“未合并前”的真实占比。
+            """
+            # 先把 count 转成数值并求和，避免 dtype 问题
+            cnt_sum = 0
+            if df is not None and not df.empty:
+                cnt_sum = pd.to_numeric(df.get("count", 0), errors="coerce").fillna(0).sum()
 
-                # 规整 + 合并小项（不动 share，只用于可视化美观）
+            with col:
+                if cnt_sum == 0 or not total_n:
+                    st.info("No data")
+                    return
+
+                # 规整 + 合并小项（不动 df 里的 share，只影响扇区角度）
                 df_in = df.sort_values(["count", "Class"], ascending=[False, True]).reset_index(drop=True)
 
                 def _collapse_others(df_in: pd.DataFrame, keep_top=8, tiny=0.02):
                     if len(df_in) <= keep_top:
                         out = df_in.copy()
                     else:
-                        frac = df_in["count"] / float(total_n)
+                        # tiny 的判断用总体样本数（total_n），不受合并影响
+                        frac = pd.to_numeric(df_in["count"], errors="coerce").fillna(0) / float(total_n)
                         head = df_in.loc[frac >= tiny].head(keep_top-1)
                         tail = pd.concat([df_in.loc[frac < tiny], df_in.loc[frac >= tiny].iloc[max(keep_top-1,0):]])
                         if len(tail) > 0:
                             others = pd.DataFrame([{
                                 "Class": "Others",
-                                "count": int(tail["count"].sum()),
-                                "share": float(tail["count"].sum())/float(total_n)
+                                "count": int(pd.to_numeric(tail["count"], errors="coerce").fillna(0).sum()),
+                                # 这里的 share 仅用于绘图归一，不用于图例显示
+                                "share": float(pd.to_numeric(tail["count"], errors="coerce").fillna(0).sum())/float(total_n)
                             }])
                             out = pd.concat([head, others], ignore_index=True)
                         else:
                             out = head
                     # 重新按“当前”总和归一（只影响扇区角度，不影响图例显示的 share）
-                    s = float(out["count"].sum()) or 1.0
-                    out["share"] = out["count"]/s
+                    s = float(pd.to_numeric(out["count"], errors="coerce").fillna(0).sum()) or 1.0
+                    out["share"] = pd.to_numeric(out["count"], errors="coerce").fillna(0)/s
                     return out
 
                 df_plot = _collapse_others(df_in, keep_top=8, tiny=tiny_cut)
                 labels = df_plot["Class"].astype(str).tolist()
-                sizes  = df_plot["count"].astype(int).to_numpy()
-                fracs  = sizes / sizes.sum()
+                sizes  = pd.to_numeric(df_plot["count"], errors="coerce").fillna(0).astype(int).to_numpy()
                 colors = [PALETTE[i % len(PALETTE)] for i in range(len(labels))]
 
                 def _autopct(pct):  # 扇区上的数字
@@ -673,13 +685,17 @@ if uploaded_file is not None:
                     wedgeprops=dict(linewidth=0.9, edgecolor="white"),
                     textprops=dict(fontsize=int(10*chart_scale))
                 )
-                # 图例用原始 share（更准确）
+
+                # 图例使用未合并前 df_in 的 share，更准确
                 legend_labels = [f"{lab}, {_fmt_frac(sh)}" for lab, sh in zip(df_in["Class"], df_in["share"])]
-                ax.legend(wedges, legend_labels, title="Class",
-                        loc="center left", bbox_to_anchor=(1.02, 0.5),
-                        frameon=False, fontsize=int(10*chart_scale),
-                        title_fontsize=int(11*chart_scale))
-                ax.axis("equal"); ax.set_title(title, fontsize=int(13*chart_scale), pad=10)
+                ax.legend(
+                    wedges, legend_labels, title="Class",
+                    loc="center left", bbox_to_anchor=(1.02, 0.5),
+                    frameon=False, fontsize=int(10*chart_scale),
+                    title_fontsize=int(11*chart_scale)
+                )
+                ax.axis("equal")
+                ax.set_title(title, fontsize=int(13*chart_scale), pad=10)
 
                 st.pyplot(fig)
                 st.download_button(
@@ -693,9 +709,9 @@ if uploaded_file is not None:
         # 四列饼图
         cols_pie = st.columns(4, gap="large")
         _pie_full(cols_pie[0], df_pie_l1,   "Level1 · class share", total_n=len(pred1_label))
-        _pie_full(cols_pie[1], df_pie_l2,   "Level2 · class share (Extraterrestrial only)", total_n=N_L2 if N_L2>0 else 1)
-        _pie_full(cols_pie[2], df_pie_l3oc, "Level3-OC · class share", total_n=N_L3_OC if N_L3_OC>0 else 1)
-        _pie_full(cols_pie[3], df_pie_l3cc, "Level3-CC · class share", total_n=N_L3_CC if N_L3_CC>0 else 1)
+        _pie_full(cols_pie[1], df_pie_l2,   "Level2 · class share (Extraterrestrial only)", total_n=(N_L2 if N_L2 > 0 else 1))
+        _pie_full(cols_pie[2], df_pie_l3oc, "Level3-OC · class share", total_n=(N_L3_OC if N_L3_OC > 0 else 1))
+        _pie_full(cols_pie[3], df_pie_l3cc, "Level3-CC · class share", total_n=(N_L3_CC if N_L3_CC > 0 else 1))
 
 
         # ===================== ☄️ Class frequency (bars)  =====================
