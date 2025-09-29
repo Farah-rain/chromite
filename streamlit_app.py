@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -149,7 +148,7 @@ def preprocess_uploaded_data(df):
 
     for ox in MW:
         if ox not in df.columns: df[ox] = 0.0
-    df = df.copy()
+        df = df.copy()
 
     if "FeO" in df.columns and "Fe2O3" in df.columns:
         df = df.rename(columns={"FeO": "FeOre", "Fe2O3": "Fe2O3re"})
@@ -296,8 +295,6 @@ if uploaded_file is not None:
         else:
             prob2_cal_full = np.zeros_like(prob2_raw, dtype=float)
 
-
-
         prob2 = np.nan_to_num(prob2_raw, nan=0.0)
         empty2 = (pd.Series(pred2_label, dtype="object") == "")
         if empty2.any():
@@ -308,8 +305,6 @@ if uploaded_file is not None:
         _pred2_norm = pd.Series(pred2_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
         mask_lvl3 = _pred2_norm.isin(["oc", "cc"]).to_numpy()
         routed_to_L3 = bool(mask_lvl3.any())
-
-
 
         C3 = len(model_lvl3.classes_)
         classes3 = model_lvl3.classes_.astype(str)
@@ -330,14 +325,11 @@ if uploaded_file is not None:
                 allowed = valid_lvl3.get(parent, set())
                 p = all_pr3_cal[row_i].copy()
 
-
                 if allowed:
                     mask_allowed = np.isin(classes3, list(allowed))
                     p = p * mask_allowed
                     s = p.sum()
                     if s > 0: p = p / s
-
-                   
 
                 if thr_L3 is not None:
                     pred_tmp, pmax_tmp = predict_with_classwise_thresholds(
@@ -361,34 +353,27 @@ if uploaded_file is not None:
                 pred3_label[empty3.values] = ABSTAIN_LABEL
                 p3unk[empty3.values] = 1.0
 
-
-
         # -------------------- 结果表 --------------------
-
         df_display = df_uploaded.copy().reset_index(drop=True)
         df_display.insert(0, "Index", df_display.index + 1)
         df_display.insert(1, "Level1_Pred", pred1_label)
         df_display.insert(2, "Level2_Pred", pred2_label)
         for i, c in enumerate(classes1):
-            df_display[f"P_Level1_cal_{c}"] = prob1_cal_full[:, i]
-
+            # 原列名 P_Level1_cal_* -> 现在统一为 P_Level1_*
+            df_display[f"P_Level1_{c}"] = prob1_cal_full[:, i]
 
         for i, c in enumerate(classes2):
-            df_display[f"P_Level2_cal_{c}"] = prob2_cal_full[:, i]
+            # 原列名 P_Level2_cal_* -> 现在统一为 P_Level2_*
+            df_display[f"P_Level2_{c}"] = prob2_cal_full[:, i]
 
-        
-        
         if routed_to_L3:
             df_display.insert(3, "Level3_Pred", pred3_label)
             for i, c in enumerate(classes3):
-                df_display[f"P_Level3_post_{c}"] = prob3_post[:, i]
-
-
+                # 原列名 P_Level3_post_* -> 现在统一为 P_Level3_*
+                df_display[f"P_Level3_{c}"] = prob3_post[:, i]
 
         st.subheader("🧾 Predictions")
         st.dataframe(df_display, use_container_width=True)
-        
-
 
         # -------------------- 组内多数票 + 均值概率 --------------------
         l1_label, l1_share, l1_mean = level_group_stats(
@@ -523,7 +508,6 @@ if uploaded_file is not None:
         df_l2 = _vc_df_early(pred2_label).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
 
         # L3 拆分：根据父级 (pred2_label) 为 OC / CC 的两套
-        # 先做个归一化父级标签便于判断
         parent_norm = pd.Series(pred2_label, dtype="object").astype("string").str.strip().str.upper().fillna("")
         mask_OC = (parent_norm == "OC")
         mask_CC = (parent_norm == "CC")
@@ -537,37 +521,21 @@ if uploaded_file is not None:
 
         df_l3_oc = _vc_l3_subset(mask_OC)
         df_l3_cc = _vc_l3_subset(mask_CC)
-        # 一个“合并版”保持兼容（你后面原有导出仍会写 Summary_L3）
-
 
         df_l3 = pd.concat([df_l3_oc, df_l3_cc], ignore_index=True) \
                 .groupby("Class", as_index=False).sum()
 
         if not df_l3.empty:
-            # ① 这里把 count 列变成纯数值，非数值→NaN→0
             df_l3["count"] = pd.to_numeric(df_l3["count"], errors="coerce").fillna(0)
-
-            # ② 分母确保是 float，且至少为 1 防止除零
             total = int(df_l3["count"].sum()) or 1
             denom = float(total)
-
-            # ③ 再去计算 share
             df_l3["share"] = (df_l3["count"].astype(float) / denom).round(3)
-
-            # 如果你后面还有排序，也放在这里
             df_l3 = df_l3.sort_values(["count", "Class"], ascending=[False, True], ignore_index=True)
 
-
-       
-
         # ===================== 📋 Classification summary (tables)  =====================
-
         st.subheader("📋 Classification summary (tables)")
 
         def _make_summary_from_labels(labels, total_n=None) -> pd.DataFrame:
-            """labels -> DataFrame(Class, Count, Share)
-            若 total_n 指定，则 share = count/total_n；否则用 len(labels)
-            """
             if labels is None:
                 return pd.DataFrame(columns=["Class", "Count", "Share"])
             s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
@@ -579,32 +547,27 @@ if uploaded_file is not None:
             df["Share"] = (df["Count"] / denom).round(3)
             return df[["Class", "Count", "Share"]]
 
-
         # 计算 L2 / L3 的有效子集
         pred1_norm = pd.Series(pred1_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
-        mask_L2  = (pred1_norm == "extraterrestrial").to_numpy()          # 只地外进入 L2
+        mask_L2  = (pred1_norm == "extraterrestrial").to_numpy()
         N_L2     = int(mask_L2.sum())
 
-        # L3 只在已路由（OC/CC）的样本上有效
         pred2_norm = pd.Series(pred2_label, dtype="object").astype("string").str.strip().fillna("")
         mask_L3_OC = (pred2_norm == "OC").to_numpy()
         mask_L3_CC = (pred2_norm == "CC").to_numpy()
         N_L3_OC    = int(mask_L3_OC.sum())
         N_L3_CC    = int(mask_L3_CC.sum())
 
-        # 三个表：L1；L2(地外)；L3-OC 与 L3-CC（同一列上下显示）
         df_l1_tbl = _make_summary_from_labels(pred1_label)
         df_l2_tbl = _make_summary_from_labels(pred2_label[mask_L2], total_n=N_L2)
         df_l3_oc_tbl = _make_summary_from_labels(pred3_label[mask_L3_OC], total_n=N_L3_OC) if routed_to_L3 else pd.DataFrame(columns=["Class","Count","Share"])
         df_l3_cc_tbl = _make_summary_from_labels(pred3_label[mask_L3_CC], total_n=N_L3_CC) if routed_to_L3 else pd.DataFrame(columns=["Class","Count","Share"])
 
-        # 加上 Level 列
         df_l1_tbl.insert(0, "Level", "Level1")
         df_l2_tbl.insert(0, "Level", "Level2")
         df_l3_oc_tbl.insert(0, "Level", "Level3-OC")
         df_l3_cc_tbl.insert(0, "Level", "Level3-CC")
 
-        # 三列布局：L1 | L2 | (L3-OC, L3-CC)
         cols_tbl = st.columns(3, gap="large")
 
         with cols_tbl[0]:
@@ -630,14 +593,10 @@ if uploaded_file is not None:
             else:
                 st.dataframe(df_l3_cc_tbl, use_container_width=True)
 
-
         # ===================== 🪐 Class share (pie)  =====================
-
-
         st.subheader("🪐 Class share (pie)")
 
         def _vc_df(labels: np.ndarray, total_n: int | None = None) -> pd.DataFrame:
-            """把标签向量转换为 {Class, count, share}，share 的分母可指定 total_n。"""
             s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
             vc = s.value_counts(dropna=False)
             df = vc.rename_axis("Class").reset_index(name="count")
@@ -646,30 +605,23 @@ if uploaded_file is not None:
             df["share"] = (df["count"] / denom).round(3)
             return df[["Class", "count", "share"]]
 
-        # 四个饼图的数据：L1 / L2(地外) / L3-OC / L3-CC
         df_pie_l1   = _vc_df(pred1_label)
         df_pie_l2   = _vc_df(pred2_label[mask_L2],    total_n=N_L2)    if N_L2    > 0 else pd.DataFrame(columns=["Class","count","share"])
         df_pie_l3oc = _vc_df(pred3_label[mask_L3_OC], total_n=N_L3_OC) if N_L3_OC > 0 else pd.DataFrame(columns=["Class","count","share"])
         df_pie_l3cc = _vc_df(pred3_label[mask_L3_CC], total_n=N_L3_CC) if N_L3_CC > 0 else pd.DataFrame(columns=["Class","count","share"])
 
         def _fmt_frac(sh: float) -> str:
-            """图例用百分比字符串：大值粗略，小值保留更多位。"""
-            if sh >= 0.10:     # ≥10%
+            if sh >= 0.10:
                 return f"{sh:.0%}"
-            elif sh >= 0.01:   # 1%–10%
+            elif sh >= 0.01:
                 return f"{sh:.1%}"
-            elif sh >= 0.001:  # 0.1%–1%
+            elif sh >= 0.001:
                 return f"{sh:.2%}"
-            else:              # <0.1%
+            else:
                 return f"{sh:.3%}"
 
         def _pie_full(col, df: pd.DataFrame, title: str, total_n: int,
                     small_cut: float = 0.06, tiny_cut: float = 0.02):
-            """
-            统一『No data』风格（与柱状图一致）；合并极小扇区到 Others 只用于可视化，
-            图例里的 share 始终使用“未合并前”的真实占比。
-            """
-            # 先把 count 转成数值并求和，避免 dtype 问题
             cnt_sum = 0
             if df is not None and not df.empty:
                 cnt_sum = pd.to_numeric(df.get("count", 0), errors="coerce").fillna(0).sum()
@@ -679,14 +631,12 @@ if uploaded_file is not None:
                     st.info("No data")
                     return
 
-                # 规整 + 合并小项（不动 df 里的 share，只影响扇区角度）
                 df_in = df.sort_values(["count", "Class"], ascending=[False, True]).reset_index(drop=True)
 
                 def _collapse_others(df_in: pd.DataFrame, keep_top=8, tiny=0.02):
                     if len(df_in) <= keep_top:
                         out = df_in.copy()
                     else:
-                        # tiny 的判断用总体样本数（total_n），不受合并影响
                         frac = pd.to_numeric(df_in["count"], errors="coerce").fillna(0) / float(total_n)
                         head = df_in.loc[frac >= tiny].head(keep_top-1)
                         tail = pd.concat([df_in.loc[frac < tiny], df_in.loc[frac >= tiny].iloc[max(keep_top-1,0):]])
@@ -694,13 +644,11 @@ if uploaded_file is not None:
                             others = pd.DataFrame([{
                                 "Class": "Others",
                                 "count": int(pd.to_numeric(tail["count"], errors="coerce").fillna(0).sum()),
-                                # 这里的 share 仅用于绘图归一，不用于图例显示
                                 "share": float(pd.to_numeric(tail["count"], errors="coerce").fillna(0).sum())/float(total_n)
                             }])
                             out = pd.concat([head, others], ignore_index=True)
                         else:
                             out = head
-                    # 重新按“当前”总和归一（只影响扇区角度，不影响图例显示的 share）
                     s = float(pd.to_numeric(out["count"], errors="coerce").fillna(0).sum()) or 1.0
                     out["share"] = pd.to_numeric(out["count"], errors="coerce").fillna(0)/s
                     return out
@@ -710,7 +658,7 @@ if uploaded_file is not None:
                 sizes  = pd.to_numeric(df_plot["count"], errors="coerce").fillna(0).astype(int).to_numpy()
                 colors = [PALETTE[i % len(PALETTE)] for i in range(len(labels))]
 
-                def _autopct(pct):  # 扇区上的数字
+                def _autopct(pct):
                     return f"{pct:.0f}%" if (pct/100.0) >= small_cut else ""
 
                 fig, ax = plt.subplots(figsize=(7.2*chart_scale, 5.2*chart_scale))
@@ -723,7 +671,6 @@ if uploaded_file is not None:
                     textprops=dict(fontsize=int(10*chart_scale))
                 )
 
-                # 图例使用未合并前 df_in 的 share，更准确
                 legend_labels = [f"{lab}, {_fmt_frac(sh)}" for lab, sh in zip(df_in["Class"], df_in["share"])]
                 ax.legend(
                     wedges, legend_labels, title="Class",
@@ -743,16 +690,13 @@ if uploaded_file is not None:
                 )
                 plt.close(fig)
 
-        # 四列饼图
         cols_pie = st.columns(4, gap="large")
         _pie_full(cols_pie[0], df_pie_l1,   "Level1 · class share", total_n=len(pred1_label))
         _pie_full(cols_pie[1], df_pie_l2,   "Level2 · class share (Extraterrestrial only)", total_n=(N_L2 if N_L2 > 0 else 1))
         _pie_full(cols_pie[2], df_pie_l3oc, "Level3-OC · class share", total_n=(N_L3_OC if N_L3_OC > 0 else 1))
         _pie_full(cols_pie[3], df_pie_l3cc, "Level3-CC · class share", total_n=(N_L3_CC if N_L3_CC > 0 else 1))
 
-
         # ===================== ☄️ Class frequency (bars)  =====================
-
         st.subheader("☄️ Class frequency (bars)")
 
         def _bar_from_df(col, df: pd.DataFrame, title: str, total_n: int):
@@ -783,17 +727,11 @@ if uploaded_file is not None:
                 )
                 plt.close(fig)
 
-        # 四列柱状图（与饼图一致）
         cols_bar = st.columns(4, gap="large")
         _bar_from_df(cols_bar[0], df_pie_l1.sort_values(["count","Class"], ascending=[False,True]),   "Level1 · frequency", total_n=len(pred1_label))
         _bar_from_df(cols_bar[1], df_pie_l2.sort_values(["count","Class"], ascending=[False,True]),   "Level2 · frequency (Extraterrestrial only)", total_n=N_L2 if N_L2>0 else 1)
         _bar_from_df(cols_bar[2], df_pie_l3oc.sort_values(["count","Class"], ascending=[False,True]), "Level3-OC · frequency", total_n=N_L3_OC if N_L3_OC>0 else 1)
         _bar_from_df(cols_bar[3], df_pie_l3cc.sort_values(["count","Class"], ascending=[False,True]), "Level3-CC · frequency", total_n=N_L3_CC if N_L3_CC>0 else 1)
-
-
-        
-
-
 
         # -------------------- ✅ 样品一致性 + 组结果 --------------------
         st.subheader("🧪 Specimen Confirmation & Group Result")
@@ -880,8 +818,6 @@ if uploaded_file is not None:
                 df_l3_export = df_l3.copy(); df_l3_export.insert(0, "Level", "Level3")
                 df_l3_export.to_excel(writer, index=False, sheet_name='Summary_L3')
 
-
-
             # >>> NEW: 同时额外导出拆分的 L3
             if not df_l3_oc.empty:
                 tmp = df_l3_oc.copy(); tmp.insert(0, "Level", "Level3-OC")
@@ -902,4 +838,3 @@ if uploaded_file is not None:
         st.exception(e)
 else:
     st.info("Please upload a data file to proceed.")
-
