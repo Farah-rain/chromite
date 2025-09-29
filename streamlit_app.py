@@ -68,6 +68,8 @@ def load_calibrator_and_threshold(level_name: str):
     thr   = _load_joblib_pair(f"models/thr_{level_name}.joblib",   f"thr_{level_name}.joblib")
     return calib, thr
 
+calib_L1, thr_L1 = load_calibrator_and_threshold("Level1")
+
 calib_L2, thr_L2 = load_calibrator_and_threshold("Level2")
 calib_L3, thr_L3 = load_calibrator_and_threshold("Level3")
 
@@ -254,6 +256,9 @@ if uploaded_file is not None:
         # ========= Level 1 =========
         prob1 = model_lvl1.predict_proba(df_input)
         classes1 = model_lvl1.classes_.astype(str)
+        
+        prob1_cal_full = apply_calibrators(prob1, classes1, calib_L1)
+
         pred1_idx = np.argmax(prob1, axis=1)
         pred1_label = classes1[pred1_idx]
         p1max = prob1[np.arange(N), pred1_idx]
@@ -284,6 +289,15 @@ if uploaded_file is not None:
             p2max[mask_lvl2] = p2max_masked
             p2unk[mask_lvl2] = 1.0 - p2max_masked
 
+        # Level2：把校准后概率铺回 N 行（其余行填 0）
+        if mask_lvl2.any():
+            prob2_cal_full = np.zeros_like(prob2_raw, dtype=float)
+            prob2_cal_full[mask_lvl2] = pr2_cal
+        else:
+            prob2_cal_full = np.zeros_like(prob2_raw, dtype=float)
+
+
+
         prob2 = np.nan_to_num(prob2_raw, nan=0.0)
         empty2 = (pd.Series(pred2_label, dtype="object") == "")
         if empty2.any():
@@ -294,7 +308,7 @@ if uploaded_file is not None:
         _pred2_norm = pd.Series(pred2_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
         mask_lvl3 = _pred2_norm.isin(["oc", "cc"]).to_numpy()
         routed_to_L3 = bool(mask_lvl3.any())
-        debug_rows = []  # ← L3 决策审计用的缓存
+
 
 
         C3 = len(model_lvl3.classes_)
@@ -323,37 +337,7 @@ if uploaded_file is not None:
                     s = p.sum()
                     if s > 0: p = p / s
 
-                        # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-                    # L3 决策审计（只记录证据，不影响判定）
-                    row_dbg = {"Index": int(i_global) + 1, "Parent": str(parent)}
-
-                    raw_vec = all_pr3[row_i].astype(float)      # 原始概率（未校准）
-                    cal_vec = all_pr3_cal[row_i].astype(float)  # 校准后概率
-                    # p 是父子置零后的向量（你上面刚算好），此刻不归一；我们就用它做阈值对比
-                    for j, cls in enumerate(classes3):
-                        cls_s = str(cls)
-                        raw = float(raw_vec[j])
-                        cal = float(cal_vec[j])
-                        masked = float(p[j])  # 父子置零后的数值（阈值就是在这上面判）
-                        thr_val = float(thr_L3.get(cls_s, 0.5)) if thr_L3 else float(THRESHOLDS["Level3"])
-                        pass_thr = (masked >= thr_val)
-
-                        row_dbg[f"{cls_s}::raw"]  = raw
-                        row_dbg[f"{cls_s}::cal"]  = cal
-                        row_dbg[f"{cls_s}::mask"] = masked
-                        row_dbg[f"{cls_s}::thr"]  = thr_val
-                        row_dbg[f"{cls_s}::pass"] = bool(pass_thr)
-
-                    # 额外：看 raw/cal 的 top1 和差距（方便判断“翻盘”来自校准还是阈值）
-                    order_raw = np.argsort(raw_vec)[::-1]
-                    order_cal = np.argsort(cal_vec)[::-1]
-                    top_raw, second_raw   = order_raw[0], (order_raw[1] if len(order_raw) > 1 else order_raw[0])
-                    top_cal, second_cal   = order_cal[0], (order_cal[1] if len(order_cal) > 1 else order_cal[0])
-                    row_dbg["raw_top1"] = str(classes3[top_raw]);  row_dbg["raw_gap"] = float(raw_vec[top_raw] - raw_vec[second_raw])
-                    row_dbg["cal_top1"] = str(classes3[top_cal]);  row_dbg["cal_gap"] = float(cal_vec[top_cal] - cal_vec[second_cal])
-
-                    debug_rows.append(row_dbg)
-                    # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+                   
 
                 if thr_L3 is not None:
                     pred_tmp, pmax_tmp = predict_with_classwise_thresholds(
@@ -377,12 +361,6 @@ if uploaded_file is not None:
                 pred3_label[empty3.values] = ABSTAIN_LABEL
                 p3unk[empty3.values] = 1.0
 
-        # ===== 审计表可视化（可选）=====
-        if debug_rows:
-            st.subheader("🧪 L3 decision audit (per row)")
-            show_audit = st.checkbox("Show Level3 decision audit table", value=False)
-            if show_audit:
-                st.dataframe(pd.DataFrame(debug_rows), use_container_width=True)
 
 
         # -------------------- 结果表 --------------------
@@ -391,12 +369,20 @@ if uploaded_file is not None:
         df_display.insert(0, "Index", df_display.index + 1)
         df_display.insert(1, "Level1_Pred", pred1_label)
         df_display.insert(2, "Level2_Pred", pred2_label)
-        for i, c in enumerate(classes1): df_display[f"P_Level1_{c}"] = prob1[:, i]
-        for i, c in enumerate(classes2): df_display[f"P_Level2_{c}"] = prob2[:, i]
+        for i, c in enumerate(classes1):
+            df_display[f"P_Level1_cal_{c}"] = prob1_cal_full[:, i]
+
+
+        for i, c in enumerate(classes2):
+            df_display[f"P_Level2_cal_{c}"] = prob2_cal_full[:, i]
+
+        
+        
         if routed_to_L3:
             df_display.insert(3, "Level3_Pred", pred3_label)
             for i, c in enumerate(classes3):
-                df_display[f"P_Level3_{c}"] = prob3_raw[:, i]
+                df_display[f"P_Level3_post_{c}"] = prob3_post[:, i]
+
 
 
         st.subheader("🧾 Predictions")
@@ -406,13 +392,15 @@ if uploaded_file is not None:
 
         # -------------------- 组内多数票 + 均值概率 --------------------
         l1_label, l1_share, l1_mean = level_group_stats(
-            labels=pred1_label, classes=classes1, prob_by_class=prob1,
+            labels=pred1_label, classes=classes1, prob_by_class=prob1_cal_full,
             p_max=p1max, p_unknown=None, fill_unknown_for_empty=False
         )
+
         l2_label, l2_share, l2_mean = level_group_stats(
-            labels=pred2_label, classes=classes2, prob_by_class=prob2,
+            labels=pred2_label, classes=classes2, prob_by_class=prob2_cal_full,
             p_max=p2max, p_unknown=p2unk, fill_unknown_for_empty=True
         )
+
         if routed_to_L3:
             l3_label, l3_share, l3_mean = level_group_stats(
                 labels=pred3_label, classes=classes3, prob_by_class=prob3_post,
@@ -891,8 +879,7 @@ if uploaded_file is not None:
             if not df_l3.empty:
                 df_l3_export = df_l3.copy(); df_l3_export.insert(0, "Level", "Level3")
                 df_l3_export.to_excel(writer, index=False, sheet_name='Summary_L3')
-            if routed_to_L3 and debug_rows:
-                pd.DataFrame(debug_rows).to_excel(writer, index=False, sheet_name='Decision_Audit_L3')
+
 
 
             # >>> NEW: 同时额外导出拆分的 L3
