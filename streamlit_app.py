@@ -398,8 +398,11 @@ if uploaded_file is not None:
             for i, c in enumerate(classes3):
                 df_display[f"P_Level3_{c}"] = prob3_raw[:, i]
 
+
         st.subheader("🧾 Predictions")
         st.dataframe(df_display, use_container_width=True)
+        
+
 
         # -------------------- 组内多数票 + 均值概率 --------------------
         l1_label, l1_share, l1_mean = level_group_stats(
@@ -888,6 +891,9 @@ if uploaded_file is not None:
             if not df_l3.empty:
                 df_l3_export = df_l3.copy(); df_l3_export.insert(0, "Level", "Level3")
                 df_l3_export.to_excel(writer, index=False, sheet_name='Summary_L3')
+            if routed_to_L3 and debug_rows:
+                pd.DataFrame(debug_rows).to_excel(writer, index=False, sheet_name='Decision_Audit_L3')
+
 
             # >>> NEW: 同时额外导出拆分的 L3
             if not df_l3_oc.empty:
