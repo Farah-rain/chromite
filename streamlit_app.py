@@ -258,9 +258,11 @@ if uploaded_file is not None:
         
         prob1_cal_full = apply_calibrators(prob1, classes1, calib_L1)
 
-        pred1_idx = np.argmax(prob1, axis=1)
+            # 用校准后的概率来决定一级预测与最大概率
+        pred1_idx = np.argmax(prob1_cal_full, axis=1)
         pred1_label = classes1[pred1_idx]
-        p1max = prob1[np.arange(N), pred1_idx]
+        p1max = prob1_cal_full[np.arange(N), pred1_idx]
+
 
         # ========= Level 2（仅 Extraterrestrial）=========
         _pred1_norm = pd.Series(pred1_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
@@ -493,7 +495,7 @@ if uploaded_file is not None:
                 st.markdown(f"#### 🔍 {nm} (per class)")
                 _render_per_class(mdl, nm, df_input)
 
-        # =======================================================================
+        
         # >>> NEW: 预计算 summary（含 L3 拆分）
         # =======================================================================
         def _vc_df_early(labels: np.ndarray) -> pd.DataFrame:
