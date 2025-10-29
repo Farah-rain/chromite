@@ -235,7 +235,7 @@ def level_group_stats(labels, classes, prob_by_class, p_max=None, p_unknown=None
 
 # -------------------- 上传文件并处理 --------------------
 uploaded_file = st.file_uploader(
-    "Upload an Excel or CSV file (must include all feature columns).", type=["xlsx", "csv"]
+    "Upload an Excel or CSV file (please replace your FeO with FeOT, If you did not measure FeO and Fe2O3 separately).", type=["xlsx", "csv"]
 )
 
 if uploaded_file is not None:
