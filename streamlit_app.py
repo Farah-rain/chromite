@@ -17,6 +17,8 @@ THRESHOLDS = {"Level2": 0.90, "Level3": 0.90}
 # Level2 的 margin（只对 OC 生效）
 MARGINS_LEVEL2 = {"OC": 0.04}
 
+OC_MARGINS = {"EOC-L": 0.04, "EOC-H": 0.04, "EOC-LL": 0.04}
+
 # Level3 父子约束
 valid_lvl3 = {
     "OC": {"EOC-H", "EOC-L", "EOC-LL", "UOC"},
@@ -334,13 +336,17 @@ if uploaded_file is not None:
                     if s > 0: p = p / s
 
                 if thr_L3 is not None:
+                    margins = OC_MARGINS if parent == "OC" else None  
                     pred_tmp, pmax_tmp = predict_with_classwise_thresholds(
                         proba_cal=p.reshape(1, -1),
                         classes=classes3,
                         thr_dict=thr_L3,
                         unknown_label=ABSTAIN_LABEL,
-                        margins=None
+                        margins=margins
                     )
+
+                    
+                    
                     pred3_label[i_global] = pred_tmp[0]; p3max[i_global] = pmax_tmp[0]
                 else:
                     j = int(np.argmax(p)); pmax = float(p[j])
