@@ -19,7 +19,7 @@ MARGINS_LEVEL2 = {"OC": 0.04}
 
 OC_MARGINS = {"EOC-L": 0.04, "EOC-H": 0.04, "EOC-LL": 0.04}
 HARD_CLASS_MIN_THR = {
-    "Level3": {"EOC-H": 0.7}
+    "Level3": {"EOC-H": 0.8}
 }
 # Level3 父子约束
 valid_lvl3 = {
