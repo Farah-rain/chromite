@@ -18,7 +18,9 @@ THRESHOLDS = {"Level2": 0.90, "Level3": 0.90}
 MARGINS_LEVEL2 = {"OC": 0.04}
 
 OC_MARGINS = {"EOC-L": 0.04, "EOC-H": 0.04, "EOC-LL": 0.04}
-
+HARD_CLASS_MIN_THR = {
+    "Level3": {"EOC-H": 0.75}
+}
 # Level3 父子约束
 valid_lvl3 = {
     "OC": {"EOC-H", "EOC-L", "EOC-LL", "UOC"},
@@ -73,6 +75,13 @@ calib_L1, thr_L1 = load_calibrator_and_threshold("Level1")
 
 calib_L2, thr_L2 = load_calibrator_and_threshold("Level2")
 calib_L3, thr_L3 = load_calibrator_and_threshold("Level3")
+if thr_L3 is None:
+    thr_L3 = {}
+# 直接覆盖（和训练脚本一致），确保运行时一定生效
+for cls, v in (HARD_CLASS_MIN_THR.get("Level3", {}) or {}).items():
+    thr_L3[str(cls)] = float(v)
+
+
 
 # -------------------- 概率校准 & 类阈值工具 --------------------
 def apply_calibrators(proba: np.ndarray, classes: np.ndarray, calibrators: dict | None):
