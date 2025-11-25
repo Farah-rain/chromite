@@ -7,8 +7,8 @@ Cr#
 Al2O3
 Fe*
 Cr2O3
-Fe#
 Mg#
 FeO
 FeOT
+
 
