@@ -15,8 +15,6 @@ st.title("✨ Chromite Extraterrestrial Origin Classifier")
 ABSTAIN_LABEL = "Unclassified"
 THRESHOLDS = {"Level2": 0.90, "Level3": 0.90}
 # Level2 的 margin（只对 OC 生效）
-MARGINS_LEVEL2 = {"OC": 0.04}
-
 OC_MARGINS = {"EOC-L": 0.04, "EOC-H": 0.04, "EOC-LL": 0.04}
 
 # Level3 父子约束
@@ -336,7 +334,7 @@ if uploaded_file is not None:
                     if s > 0: p = p / s
 
                 if thr_L3 is not None:
-                    margins = OC_MARGINS if parent == "OC" else None  
+                    margins = OC_MARGINS if parent == "OC" else None  # 只有 OC 家族启用间隔
                     pred_tmp, pmax_tmp = predict_with_classwise_thresholds(
                         proba_cal=p.reshape(1, -1),
                         classes=classes3,
