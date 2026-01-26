@@ -336,7 +336,7 @@ if uploaded_file is not None:
             if thr_L2 is not None:
                 pred2_masked, p2max_masked = predict_with_classwise_thresholds(
                     proba_cal=pr2_cal, classes=classes2, thr_dict=thr_L2,
-                    unknown_label=ABSTAIN_LABEL, margins=MARGINS_LEVEL2
+                    unknown_label=ABSTAIN_LABEL
                 )
             else:
                 pred2_masked, p2max_masked = apply_threshold(pr2_cal, classes2, THRESHOLDS["Level2"])
@@ -391,7 +391,7 @@ if uploaded_file is not None:
                         p = p / s
 
                 if thr_L3 is not None:
-                    margins = OC_MARGINS if parent == "OC" else None
+                    
                     pred_tmp, pmax_tmp = predict_with_classwise_thresholds(
                         proba_cal=p.reshape(1, -1),
                         classes=classes3,
@@ -403,7 +403,8 @@ if uploaded_file is not None:
                     p3max[i_global] = pmax_tmp[0]
                 else:
                     j = int(np.argmax(p)); pmax_val = float(p[j])
-                    pred3_label[i_global] = classes3[j] if pmax_val >= THRESHOLDS["Level3"] else ABSTAIN_LABEL
+                    pred3_label[i_global] = classes3[j] if pmax_val >= 0.5 else ABSTAIN_LABEL
+
                     p3max[i_global] = pmax_val
 
                 p3unk[i_global] = 1.0 - p3max[i_global]
