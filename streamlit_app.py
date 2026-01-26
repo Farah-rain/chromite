@@ -397,7 +397,7 @@ if uploaded_file is not None:
                         classes=classes3,
                         thr_dict=thr_L3,
                         unknown_label=ABSTAIN_LABEL,
-                        margins=margins
+                        
                     )
                     pred3_label[i_global] = pred_tmp[0]
                     p3max[i_global] = pmax_tmp[0]
