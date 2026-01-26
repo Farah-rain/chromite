@@ -13,17 +13,15 @@ st.title("✨ Chromite Extraterrestrial Origin Classifier")
 
 # -------------------- 常量与映射（与训练一致） --------------------
 ABSTAIN_LABEL = "Unclassified"
-THRESHOLDS = {"Level2": 0.90, "Level3": 0.90}
-# Level2 的 margin（只对 OC 生效）
-MARGINS_LEVEL2 = {"OC": 0.04}
 
-OC_MARGINS = {"EOC-L": 0.04, "EOC-H": 0.04, "EOC-LL": 0.04}
-HARD_CLASS_MIN_THR = {
-    "Level3": {"EOC-H": 0.75}
-}
+
+
+
+
+
 # Level3 父子约束
 valid_lvl3 = {
-    "OC": {"EOC-H", "EOC-L", "EOC-LL", "UOC"},
+    "OC": {"H", "L", "LL"},
     "CC": {"CM-CO", "CR-clan", "CV"}
 }
 
@@ -82,10 +80,10 @@ for cls, v in (HARD_CLASS_MIN_THR.get("Level3", {}) or {}).items():
     thr_L3[str(cls)] = float(v)
 
 # 载入 Tukey 区间（若存在）
-q_low_L2  = _load_joblib_pair("models/q_low_Level2.joblib",  "q_low_Level2.joblib")
-q_high_L2 = _load_joblib_pair("models/q_high_Level2.joblib", "q_high_Level2.joblib")
-q_low_L3  = _load_joblib_pair("models/q_low_Level3.joblib",  "q_low_Level3.joblib")
-q_high_L3 = _load_joblib_pair("models/q_high_Level3.joblib", "q_high_Level3.joblib")
+#q_low_L2  = _load_joblib_pair("models/q_low_Level2.joblib",  "q_low_Level2.joblib")
+#q_high_L2 = _load_joblib_pair("models/q_high_Level2.joblib", "q_high_Level2.joblib")
+#q_low_L3  = _load_joblib_pair("models/q_low_Level3.joblib",  "q_low_Level3.joblib")
+#q_high_L3 = _load_joblib_pair("models/q_high_Level3.joblib", "q_high_Level3.joblib")
 
 
 # -------------------- 概率校准 & 类阈值工具 --------------------
@@ -217,16 +215,17 @@ def preprocess_uploaded_data(df):
         extra = df.apply(fe_split_spinel, axis=1)
         df = df.join(extra)
 
-        # ⚠️ 关键：把拆出来的 FeOre / Fe2O3re 映射回模型需要的列名 FeO / Fe2O3
+        
         df["FeO"]   = df["FeOre"]
         df["Fe2O3"] = df["Fe2O3re"]
-
-    # 现在再补齐其它氧化物列（不会覆盖已经有的 FeO / Fe2O3）
+        
+    df["TAC"] = df["TiO2"] / (df["TiO2"] + df["Al2O3"] + df["Cr2O3"])
+  
     for ox in MW:
         if ox not in df.columns:
             df[ox] = 0.0
 
-    # 用统一好的 FeO / Fe2O3 来算 Cr#、Mg#、Fe*、Fe#
+   
     mol_wt = {'Cr2O3':151.99,'Al2O3':101.961,'MgO':40.304,'FeO':71.844,'Fe2O3':159.688}
     Cr_mol = df["Cr2O3"]/mol_wt["Cr2O3"]*2
     Al_mol = df["Al2O3"]/mol_wt["Al2O3"]*2
@@ -237,6 +236,7 @@ def preprocess_uploaded_data(df):
     df["Cr#"] = Cr_mol / (Cr_mol + Al_mol)
     df["Mg#"] = Mg_mol / (Mg_mol + Fe2_mol)
     df["Fe*"] = Fe3_mol / (Fe3_mol + Cr_mol + Al_mol)
+    
    
 
     return df
@@ -245,38 +245,6 @@ def preprocess_uploaded_data(df):
 def to_numeric_df(df):
     return df.apply(pd.to_numeric, errors="coerce")
 
-def count_ood_features_for_sample(x_row, cls, q_low_dict, q_high_dict):
-    """
-    返回：(异常特征个数, 异常特征名列表)
-
-    如果该类在 q_low_dict/q_high_dict 中不存在（比如样本数太少被跳过），
-    则返回 (0, [])。
-    """
-    cls = str(cls)
-    if cls not in q_low_dict or cls not in q_high_dict:
-        return 0, []
-
-    ql = q_low_dict[cls]
-    qh = q_high_dict[cls]
-
-    # 只对双方都有数值的特征统计
-    common_cols = x_row.index.intersection(ql.index).intersection(qh.index)
-    x_sub = x_row[common_cols]
-    ql_sub = ql[common_cols]
-    qh_sub = qh[common_cols]
-
-    # 忽略 NaN
-    not_nan = ~x_sub.isna()
-    x_valid  = x_sub[not_nan]
-    ql_valid = ql_sub[not_nan]
-    qh_valid = qh_sub[not_nan]
-
-    if x_valid.empty:
-        return 0, []
-
-    mask_ood = (x_valid < ql_valid) | (x_valid > qh_valid)
-    ood_cols = x_valid.index[mask_ood].tolist()
-    return int(mask_ood.sum()), ood_cols
 
 
 # ========= 组内多数票 + 平均概率 =========
@@ -467,52 +435,7 @@ if uploaded_file is not None:
                 # 原列名 P_Level3_post_* -> 现在统一为 P_Level3_*
                 df_display[f"P_Level3_{c}"] = prob3_post[:, i]
 
-                # ---------- NEW: Tukey OOD 统计列 ----------
-        # Level2：按预测的 Level2 类别统计 OOD 特征个数 + 具体特征名（Unclassified 记 NaN / 空字符串）
-        if (q_low_L2 is not None) and (q_high_L2 is not None):
-            L2_ood_counts = []
-            L2_ood_feats  = []
-            for i in range(N):
-                cls2 = str(pred2_label[i])
-                if cls2 in ("", ABSTAIN_LABEL):
-                    L2_ood_counts.append(np.nan)
-                    L2_ood_feats.append("")
-                    continue
-                x_row = pd.Series(df_input.iloc[i], index=df_input.columns)
-                cnt, feats = count_ood_features_for_sample(
-                    x_row=x_row,
-                    cls=cls2,
-                    q_low_dict=q_low_L2,
-                    q_high_dict=q_high_L2
-                )
-                L2_ood_counts.append(cnt)
-                # 把特征名列表拼成一个逗号分隔的字符串，方便在表里显示
-                L2_ood_feats.append(", ".join(map(str, feats)))
-            df_display["L2_OOD_feature_count"] = L2_ood_counts
-            df_display["L2_OOD_features"]      = L2_ood_feats
-
-        # Level3：按预测的 Level3 类别统计 OOD 特征个数 + 具体特征名
-        if routed_to_L3 and (q_low_L3 is not None) and (q_high_L3 is not None):
-            L3_ood_counts = []
-            L3_ood_feats  = []
-            for i in range(N):
-                cls3 = str(pred3_label[i])
-                if cls3 in ("", ABSTAIN_LABEL):
-                    L3_ood_counts.append(np.nan)
-                    L3_ood_feats.append("")
-                    continue
-                x_row = pd.Series(df_input.iloc[i], index=df_input.columns)
-                cnt, feats = count_ood_features_for_sample(
-                    x_row=x_row,
-                    cls=cls3,
-                    q_low_dict=q_low_L3,
-                    q_high_dict=q_high_L3
-                )
-                L3_ood_counts.append(cnt)
-                L3_ood_feats.append(", ".join(map(str, feats)))
-            df_display["L3_OOD_feature_count"] = L3_ood_counts
-            df_display["L3_OOD_features"]      = L3_ood_feats
-        # ---------- OOD 统计结束 ----------
+                
 
       
       
