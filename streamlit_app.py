@@ -18,7 +18,9 @@ THRESHOLDS = {"Level2": 0.90, "Level3": 0.90}
 MARGINS_LEVEL2 = {"OC": 0.04}
 
 OC_MARGINS = {"EOC-L": 0.04, "EOC-H": 0.04, "EOC-LL": 0.04}
-
+HARD_CLASS_MIN_THR = {
+    "Level3": {"EOC-H": 0.75}
+}
 # Level3 父子约束
 valid_lvl3 = {
     "OC": {"EOC-H", "EOC-L", "EOC-LL", "UOC"},
@@ -33,7 +35,7 @@ with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.8, 1.6, 1.0, 0.05)
 
-    @st.cache_resource
+    
     def load_model_and_metadata():
         def _load(p1, p2): return joblib.load(p1) if os.path.exists(p1) else joblib.load(p2)
         model_lvl1 = _load("models/model_level1.pkl", "model_level1.pkl")
@@ -73,6 +75,18 @@ calib_L1, thr_L1 = load_calibrator_and_threshold("Level1")
 
 calib_L2, thr_L2 = load_calibrator_and_threshold("Level2")
 calib_L3, thr_L3 = load_calibrator_and_threshold("Level3")
+if thr_L3 is None:
+    thr_L3 = {}
+# 直接覆盖（和训练脚本一致），确保运行时一定生效
+for cls, v in (HARD_CLASS_MIN_THR.get("Level3", {}) or {}).items():
+    thr_L3[str(cls)] = float(v)
+
+# 载入 Tukey 区间（若存在）
+q_low_L2  = _load_joblib_pair("models/q_low_Level2.joblib",  "q_low_Level2.joblib")
+q_high_L2 = _load_joblib_pair("models/q_high_Level2.joblib", "q_high_Level2.joblib")
+q_low_L3  = _load_joblib_pair("models/q_low_Level3.joblib",  "q_low_Level3.joblib")
+q_high_L3 = _load_joblib_pair("models/q_high_Level3.joblib", "q_high_Level3.joblib")
+
 
 # -------------------- 概率校准 & 类阈值工具 --------------------
 def apply_calibrators(proba: np.ndarray, classes: np.ndarray, calibrators: dict | None):
@@ -123,7 +137,7 @@ def apply_threshold(proba: np.ndarray, classes: np.ndarray, thr: float):
     pred = np.where(max_val >= thr, classes[max_idx], ABSTAIN_LABEL)
     return pred, max_val
 
-@st.cache_resource
+
 def _make_explainer_cached(sig: str, _model):
     return shap.TreeExplainer(_model)
 
@@ -142,6 +156,7 @@ def _save_fig_as_png_bytes(fig, dpi=220):
     return buf.getvalue()
 
 # -------------------- 数据预处理 --------------------
+
 def preprocess_uploaded_data(df):
     df = df.copy()
 
@@ -226,8 +241,43 @@ def preprocess_uploaded_data(df):
 
     return df
 
+
 def to_numeric_df(df):
     return df.apply(pd.to_numeric, errors="coerce")
+
+def count_ood_features_for_sample(x_row, cls, q_low_dict, q_high_dict):
+    """
+    返回：(异常特征个数, 异常特征名列表)
+
+    如果该类在 q_low_dict/q_high_dict 中不存在（比如样本数太少被跳过），
+    则返回 (0, [])。
+    """
+    cls = str(cls)
+    if cls not in q_low_dict or cls not in q_high_dict:
+        return 0, []
+
+    ql = q_low_dict[cls]
+    qh = q_high_dict[cls]
+
+    # 只对双方都有数值的特征统计
+    common_cols = x_row.index.intersection(ql.index).intersection(qh.index)
+    x_sub = x_row[common_cols]
+    ql_sub = ql[common_cols]
+    qh_sub = qh[common_cols]
+
+    # 忽略 NaN
+    not_nan = ~x_sub.isna()
+    x_valid  = x_sub[not_nan]
+    ql_valid = ql_sub[not_nan]
+    qh_valid = qh_sub[not_nan]
+
+    if x_valid.empty:
+        return 0, []
+
+    mask_ood = (x_valid < ql_valid) | (x_valid > qh_valid)
+    ood_cols = x_valid.index[mask_ood].tolist()
+    return int(mask_ood.sum()), ood_cols
+
 
 # ========= 组内多数票 + 平均概率 =========
 def level_group_stats(labels, classes, prob_by_class, p_max=None, p_unknown=None, fill_unknown_for_empty=True):
@@ -296,14 +346,13 @@ if uploaded_file is not None:
         # ========= Level 1 =========
         prob1 = model_lvl1.predict_proba(df_input)
         classes1 = model_lvl1.classes_.astype(str)
-        
+
         prob1_cal_full = apply_calibrators(prob1, classes1, calib_L1)
 
-            # 用校准后的概率来决定一级预测与最大概率
+        # 用校准后的概率来决定一级预测与最大概率（无 Unclassified）
         pred1_idx = np.argmax(prob1_cal_full, axis=1)
         pred1_label = classes1[pred1_idx]
         p1max = prob1_cal_full[np.arange(N), pred1_idx]
-
 
         # ========= Level 2（仅 Extraterrestrial）=========
         _pred1_norm = pd.Series(pred1_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
@@ -372,10 +421,11 @@ if uploaded_file is not None:
                     mask_allowed = np.isin(classes3, list(allowed))
                     p = p * mask_allowed
                     s = p.sum()
-                    if s > 0: p = p / s
+                    if s > 0:
+                        p = p / s
 
                 if thr_L3 is not None:
-                    margins = OC_MARGINS if parent == "OC" else None  
+                    margins = OC_MARGINS if parent == "OC" else None
                     pred_tmp, pmax_tmp = predict_with_classwise_thresholds(
                         proba_cal=p.reshape(1, -1),
                         classes=classes3,
@@ -383,14 +433,12 @@ if uploaded_file is not None:
                         unknown_label=ABSTAIN_LABEL,
                         margins=margins
                     )
-
-                    
-                    
-                    pred3_label[i_global] = pred_tmp[0]; p3max[i_global] = pmax_tmp[0]
+                    pred3_label[i_global] = pred_tmp[0]
+                    p3max[i_global] = pmax_tmp[0]
                 else:
-                    j = int(np.argmax(p)); pmax = float(p[j])
-                    pred3_label[i_global] = classes3[j] if pmax >= THRESHOLDS["Level3"] else ABSTAIN_LABEL
-                    p3max[i_global] = pmax
+                    j = int(np.argmax(p)); pmax_val = float(p[j])
+                    pred3_label[i_global] = classes3[j] if pmax_val >= THRESHOLDS["Level3"] else ABSTAIN_LABEL
+                    p3max[i_global] = pmax_val
 
                 p3unk[i_global] = 1.0 - p3max[i_global]
                 prob3_post[i_global] = p
@@ -418,6 +466,56 @@ if uploaded_file is not None:
             for i, c in enumerate(classes3):
                 # 原列名 P_Level3_post_* -> 现在统一为 P_Level3_*
                 df_display[f"P_Level3_{c}"] = prob3_post[:, i]
+
+                # ---------- NEW: Tukey OOD 统计列 ----------
+        # Level2：按预测的 Level2 类别统计 OOD 特征个数 + 具体特征名（Unclassified 记 NaN / 空字符串）
+        if (q_low_L2 is not None) and (q_high_L2 is not None):
+            L2_ood_counts = []
+            L2_ood_feats  = []
+            for i in range(N):
+                cls2 = str(pred2_label[i])
+                if cls2 in ("", ABSTAIN_LABEL):
+                    L2_ood_counts.append(np.nan)
+                    L2_ood_feats.append("")
+                    continue
+                x_row = pd.Series(df_input.iloc[i], index=df_input.columns)
+                cnt, feats = count_ood_features_for_sample(
+                    x_row=x_row,
+                    cls=cls2,
+                    q_low_dict=q_low_L2,
+                    q_high_dict=q_high_L2
+                )
+                L2_ood_counts.append(cnt)
+                # 把特征名列表拼成一个逗号分隔的字符串，方便在表里显示
+                L2_ood_feats.append(", ".join(map(str, feats)))
+            df_display["L2_OOD_feature_count"] = L2_ood_counts
+            df_display["L2_OOD_features"]      = L2_ood_feats
+
+        # Level3：按预测的 Level3 类别统计 OOD 特征个数 + 具体特征名
+        if routed_to_L3 and (q_low_L3 is not None) and (q_high_L3 is not None):
+            L3_ood_counts = []
+            L3_ood_feats  = []
+            for i in range(N):
+                cls3 = str(pred3_label[i])
+                if cls3 in ("", ABSTAIN_LABEL):
+                    L3_ood_counts.append(np.nan)
+                    L3_ood_feats.append("")
+                    continue
+                x_row = pd.Series(df_input.iloc[i], index=df_input.columns)
+                cnt, feats = count_ood_features_for_sample(
+                    x_row=x_row,
+                    cls=cls3,
+                    q_low_dict=q_low_L3,
+                    q_high_dict=q_high_L3
+                )
+                L3_ood_counts.append(cnt)
+                L3_ood_feats.append(", ".join(map(str, feats)))
+            df_display["L3_OOD_feature_count"] = L3_ood_counts
+            df_display["L3_OOD_features"]      = L3_ood_feats
+        # ---------- OOD 统计结束 ----------
+
+      
+      
 
         st.subheader("🧾 Predictions")
         st.dataframe(df_display, use_container_width=True)
@@ -540,7 +638,6 @@ if uploaded_file is not None:
                 st.markdown(f"#### 🔍 {nm} (per class)")
                 _render_per_class(mdl, nm, df_input)
 
-        
         # >>> NEW: 预计算 summary（含 L3 拆分）
         # =======================================================================
         def _vc_df_early(labels: np.ndarray) -> pd.DataFrame:
@@ -853,7 +950,7 @@ if uploaded_file is not None:
         # -------------------- 结果下载（Prediction + Summary） --------------------
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            # 预测页
+            # 预测页（包含 OOD 列）
             df_display.to_excel(writer, index=False, sheet_name='Prediction')
 
             # 按你原有逻辑：写 Summary_L1 / Summary_L2 / Summary_L3（合并版，保持兼容）
@@ -865,7 +962,7 @@ if uploaded_file is not None:
                 df_l3_export = df_l3.copy(); df_l3_export.insert(0, "Level", "Level3")
                 df_l3_export.to_excel(writer, index=False, sheet_name='Summary_L3')
 
-            # >>> NEW: 同时额外导出拆分的 L3
+            # 额外导出拆分的 L3
             if not df_l3_oc.empty:
                 tmp = df_l3_oc.copy(); tmp.insert(0, "Level", "Level3-OC")
                 tmp.to_excel(writer, index=False, sheet_name='Summary_L3_OC')
