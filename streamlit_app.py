@@ -75,9 +75,7 @@ calib_L2, thr_L2 = load_calibrator_and_threshold("Level2")
 calib_L3, thr_L3 = load_calibrator_and_threshold("Level3")
 if thr_L3 is None:
     thr_L3 = {}
-# 直接覆盖（和训练脚本一致），确保运行时一定生效
-for cls, v in (HARD_CLASS_MIN_THR.get("Level3", {}) or {}).items():
-    thr_L3[str(cls)] = float(v)
+
 
 # 载入 Tukey 区间（若存在）
 #q_low_L2  = _load_joblib_pair("models/q_low_Level2.joblib",  "q_low_Level2.joblib")
