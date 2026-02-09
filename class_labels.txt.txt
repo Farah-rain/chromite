@@ -3,15 +3,16 @@ extraterrestrial
 terrestrial
 
 # Level2
-CC
-HED
+OC
+Merge
 Iron
-Lunar
+High-Ti Lunar
+Low-Ti Lunar
 Mars
-Mesosiderite
 CC
 Ureilite
-Win-ⅠAB-ⅡCD
+Winonaite
+ⅠAB
 A-L
 Brachinite
 Pallasite
@@ -21,8 +22,8 @@ OC
 CM-CO
 CR-clan
 CV
-UOC
-EOC-H
-EOC-L
-EOC-LL
+H
+L
+LL
+
 
