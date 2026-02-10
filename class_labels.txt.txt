@@ -19,11 +19,10 @@ Pallasite
 OC
 
 # Level3
-CM-CO
-CR-clan
-CV
+
 H
 L
 LL
+
 
 
