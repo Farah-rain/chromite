@@ -350,7 +350,7 @@ if uploaded_file is not None:
             prob2_full = np.zeros_like(prob2_raw, dtype=float)
             prob2_full[mask_lvl2] = pr2_use   
         else:
-            prob2_cal_full = np.zeros_like(prob2_raw, dtype=float)
+            prob2_full = np.zeros_like(prob2_raw, dtype=float)
 
         prob2 = np.nan_to_num(prob2_raw, nan=0.0)
         empty2 = (pd.Series(pred2_label, dtype="object") == "")
@@ -377,34 +377,42 @@ if uploaded_file is not None:
             # ===== RAW 概率（不校准）=====
             all_pr3_use = all_pr3
 
-            ...
-            p = all_pr3_use[row_i].copy()
+            idxs = np.where(mask_lvl3)[0]
+            prob3_raw[mask_lvl3] = all_pr3_use
 
-            # 父子约束（保留）
-            if allowed:
-                mask_allowed = np.isin(classes3, list(allowed))
-                p = p * mask_allowed
-                s = p.sum()
-                if s > 0:
-                    p = p / s
+            for row_i, i_global in enumerate(idxs):
+                parent = str(pred2_label[i_global]).strip()
+                allowed = valid_lvl3.get(parent, set())
 
-            # 阈值/拒识（仍保留）
-            if thr_L3 is not None:
-                pred_tmp, pmax_tmp = predict_with_classwise_thresholds(
-                    proba_cal=p.reshape(1, -1),
-                    classes=classes3,
-                    thr_dict=thr_L3,
-                    unknown_label=ABSTAIN_LABEL,
-                )
-                pred3_label[i_global] = pred_tmp[0]
-                p3max[i_global] = pmax_tmp[0]
-            else:
-                j = int(np.argmax(p)); pmax_val = float(p[j])
-                pred3_label[i_global] = classes3[j] if pmax_val >= 0.5 else ABSTAIN_LABEL
-                p3max[i_global] = pmax_val
+                # 这行必须在 for 里面，否则 row_i 不存在
+                p = all_pr3_use[row_i].copy()
 
-            p3unk[i_global] = 1.0 - p3max[i_global]
-            prob3_post[i_global] = p
+                # 父子约束（保留）
+                if allowed:
+                    mask_allowed = np.isin(classes3, list(allowed))
+                    p = p * mask_allowed
+                    s = p.sum()
+                    if s > 0:
+                        p = p / s
+
+                # 阈值/拒识（仍保留）
+                if thr_L3 is not None:
+                    pred_tmp, pmax_tmp = predict_with_classwise_thresholds(
+                        proba_cal=p.reshape(1, -1),
+                        classes=classes3,
+                        thr_dict=thr_L3,
+                        unknown_label=ABSTAIN_LABEL,
+                    )
+                    pred3_label[i_global] = pred_tmp[0]
+                    p3max[i_global] = float(pmax_tmp[0])
+                else:
+                    j = int(np.argmax(p))
+                    pmax_val = float(p[j])
+                    pred3_label[i_global] = classes3[j] if pmax_val >= 0.5 else ABSTAIN_LABEL
+                    p3max[i_global] = pmax_val
+
+                p3unk[i_global] = 1.0 - p3max[i_global]
+                prob3_post[i_global] = p
 
             empty3 = (pd.Series(pred3_label, dtype="object") == "")
             if empty3.any():
@@ -440,7 +448,7 @@ if uploaded_file is not None:
         )
 
         l2_label, l2_share, l2_mean = level_group_stats(
-            labels=pred2_label, classes=classes2, prob_by_class=prob2_cal_full,
+            labels=pred2_label, classes=classes2, prob_by_class=prob2_full,
             p_max=p2max, p_unknown=p2unk, fill_unknown_for_empty=True
         )
 
