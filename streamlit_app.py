@@ -16,9 +16,6 @@ ABSTAIN_LABEL = "Unclassified"
 
 
 
-
-
-
 # Level3 父子约束
 valid_lvl3 = {
     "OC": {"H", "L", "LL"},
@@ -310,16 +307,16 @@ if uploaded_file is not None:
         N = len(df_input)
 
         # ========= Level 1 =========
+      
         prob1 = model_lvl1.predict_proba(df_input)
         classes1 = model_lvl1.classes_.astype(str)
 
-        prob1_cal_full = apply_calibrators(prob1, classes1, calib_L1)
+        # ===== RAW 概率（不校准）=====
+        prob1_use = prob1
 
-        # 用校准后的概率来决定一级预测与最大概率（无 Unclassified）
-        pred1_idx = np.argmax(prob1_cal_full, axis=1)
+        pred1_idx = np.argmax(prob1_use, axis=1)
         pred1_label = classes1[pred1_idx]
-        p1max = prob1_cal_full[np.arange(N), pred1_idx]
-
+        p1max = prob1_use[np.arange(N), pred1_idx]
         # ========= Level 2（仅 Extraterrestrial）=========
         _pred1_norm = pd.Series(pred1_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
         mask_lvl2 = (_pred1_norm == "extraterrestrial").to_numpy()
@@ -332,24 +329,26 @@ if uploaded_file is not None:
 
         if mask_lvl2.any():
             pr2 = model_lvl2.predict_proba(df_input[mask_lvl2])
-            pr2_cal = apply_calibrators(pr2, classes2, calib_L2)
+
+            # ===== RAW 概率（不校准）=====
+            pr2_use = pr2
+
             if thr_L2 is not None:
                 pred2_masked, p2max_masked = predict_with_classwise_thresholds(
-                    proba_cal=pr2_cal, classes=classes2, thr_dict=thr_L2,
+                    proba_cal=pr2_use, classes=classes2, thr_dict=thr_L2,
                     unknown_label=ABSTAIN_LABEL
                 )
             else:
-                pred2_masked, p2max_masked = apply_threshold(pr2_cal, classes2, THRESHOLDS["Level2"])
+                pred2_masked, p2max_masked = apply_threshold(pr2_use, classes2, 0.5)
 
-            prob2_raw[mask_lvl2] = pr2
+            prob2_raw[mask_lvl2] = pr2_use
             pred2_label[mask_lvl2] = pred2_masked
             p2max[mask_lvl2] = p2max_masked
             p2unk[mask_lvl2] = 1.0 - p2max_masked
 
-        # Level2：把校准后概率铺回 N 行（其余行填 0）
-        if mask_lvl2.any():
-            prob2_cal_full = np.zeros_like(prob2_raw, dtype=float)
-            prob2_cal_full[mask_lvl2] = pr2_cal
+            # Level2：把 RAW 概率铺回 N 行（其余行填 0）
+            prob2_full = np.zeros_like(prob2_raw, dtype=float)
+            prob2_full[mask_lvl2] = pr2_use   
         else:
             prob2_cal_full = np.zeros_like(prob2_raw, dtype=float)
 
@@ -374,41 +373,38 @@ if uploaded_file is not None:
 
         if routed_to_L3:
             all_pr3 = model_lvl3.predict_proba(df_input[mask_lvl3])
-            all_pr3_cal = apply_calibrators(all_pr3, classes3, calib_L3)
 
-            idxs = np.where(mask_lvl3)[0]
-            prob3_raw[mask_lvl3] = all_pr3
-            for row_i, i_global in enumerate(idxs):
-                parent = str(pred2_label[i_global])
-                allowed = valid_lvl3.get(parent, set())
-                p = all_pr3_cal[row_i].copy()
+            # ===== RAW 概率（不校准）=====
+            all_pr3_use = all_pr3
 
-                if allowed:
-                    mask_allowed = np.isin(classes3, list(allowed))
-                    p = p * mask_allowed
-                    s = p.sum()
-                    if s > 0:
-                        p = p / s
+            ...
+            p = all_pr3_use[row_i].copy()
 
-                if thr_L3 is not None:
-                    
-                    pred_tmp, pmax_tmp = predict_with_classwise_thresholds(
-                        proba_cal=p.reshape(1, -1),
-                        classes=classes3,
-                        thr_dict=thr_L3,
-                        unknown_label=ABSTAIN_LABEL,
-                        
-                    )
-                    pred3_label[i_global] = pred_tmp[0]
-                    p3max[i_global] = pmax_tmp[0]
-                else:
-                    j = int(np.argmax(p)); pmax_val = float(p[j])
-                    pred3_label[i_global] = classes3[j] if pmax_val >= 0.5 else ABSTAIN_LABEL
+            # 父子约束（保留）
+            if allowed:
+                mask_allowed = np.isin(classes3, list(allowed))
+                p = p * mask_allowed
+                s = p.sum()
+                if s > 0:
+                    p = p / s
 
-                    p3max[i_global] = pmax_val
+            # 阈值/拒识（仍保留）
+            if thr_L3 is not None:
+                pred_tmp, pmax_tmp = predict_with_classwise_thresholds(
+                    proba_cal=p.reshape(1, -1),
+                    classes=classes3,
+                    thr_dict=thr_L3,
+                    unknown_label=ABSTAIN_LABEL,
+                )
+                pred3_label[i_global] = pred_tmp[0]
+                p3max[i_global] = pmax_tmp[0]
+            else:
+                j = int(np.argmax(p)); pmax_val = float(p[j])
+                pred3_label[i_global] = classes3[j] if pmax_val >= 0.5 else ABSTAIN_LABEL
+                p3max[i_global] = pmax_val
 
-                p3unk[i_global] = 1.0 - p3max[i_global]
-                prob3_post[i_global] = p
+            p3unk[i_global] = 1.0 - p3max[i_global]
+            prob3_post[i_global] = p
 
             empty3 = (pd.Series(pred3_label, dtype="object") == "")
             if empty3.any():
@@ -421,19 +417,14 @@ if uploaded_file is not None:
         df_display.insert(1, "Level1_Pred", pred1_label)
         df_display.insert(2, "Level2_Pred", pred2_label)
         for i, c in enumerate(classes1):
-            # 原列名 P_Level1_cal_* -> 现在统一为 P_Level1_*
-            df_display[f"P_Level1_{c}"] = prob1_cal_full[:, i]
+            df_display[f"P_Level1_{c}"] = np.round(prob1_use[:, i].astype(float), 3)
 
         for i, c in enumerate(classes2):
-            # 原列名 P_Level2_cal_* -> 现在统一为 P_Level2_*
-            df_display[f"P_Level2_{c}"] = prob2_cal_full[:, i]
+            df_display[f"P_Level2_{c}"] = np.round(prob2_full[:, i].astype(float), 3)
 
         if routed_to_L3:
-            df_display.insert(3, "Level3_Pred", pred3_label)
             for i, c in enumerate(classes3):
-                # 原列名 P_Level3_post_* -> 现在统一为 P_Level3_*
-                df_display[f"P_Level3_{c}"] = prob3_post[:, i]
-
+                df_display[f"P_Level3_{c}"] = np.round(prob3_post[:, i].astype(float), 3)
                 
 
       
@@ -444,7 +435,7 @@ if uploaded_file is not None:
 
         # -------------------- 组内多数票 + 均值概率 --------------------
         l1_label, l1_share, l1_mean = level_group_stats(
-            labels=pred1_label, classes=classes1, prob_by_class=prob1_cal_full,
+            labels=pred1_label, classes=classes1, prob_by_class=prob1_use,
             p_max=p1max, p_unknown=None, fill_unknown_for_empty=False
         )
 
