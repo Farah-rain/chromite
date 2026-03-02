@@ -72,10 +72,7 @@ calib_L2, thr_L2 = load_calibrator_and_threshold("Level2")
 calib_L3, thr_L3 = load_calibrator_and_threshold("Level3")
 if thr_L3 is None:
     thr_L3 = {}
-# ✅ NEW: 载入 KNNImputer（训练阶段保存的）
-imp_L1 = _load_joblib_pair("models/knn_imputer_Level1.joblib", "knn_imputer_Level1.joblib")
-imp_L2 = _load_joblib_pair("models/knn_imputer_Level2.joblib", "knn_imputer_Level2.joblib")
-imp_L3 = _load_joblib_pair("models/knn_imputer_Level3.joblib", "knn_imputer_Level3.joblib")
+
 
 # 载入 Tukey 区间（若存在）
 #q_low_L2  = _load_joblib_pair("models/q_low_Level2.joblib",  "q_low_Level2.joblib")
@@ -306,19 +303,12 @@ if uploaded_file is not None:
         for col in feature_list:
             if col not in df_input.columns: df_input[col] = np.nan
         df_input = to_numeric_df(df_input[feature_list])
-        # ✅ NEW: 用训练时保存的 imputer 填充缺失值（分别给 Level1/2/3）
-        def _apply_imputer(dfX: pd.DataFrame, imp, name: str) -> pd.DataFrame:
-            arr = imp.transform(dfX)
-            return pd.DataFrame(arr, columns=dfX.columns, index=dfX.index)
 
-        df_input_L1 = _apply_imputer(df_input, imp_L1, "Level1")
-        df_input_L2 = _apply_imputer(df_input, imp_L2, "Level2")
-        df_input_L3 = _apply_imputer(df_input, imp_L3, "Level3")
         N = len(df_input)
 
         # ========= Level 1 =========
       
-        prob1 = model_lvl1.predict_proba(df_input_L1)
+        prob1 = model_lvl1.predict_proba(df_input)
         classes1 = model_lvl1.classes_.astype(str)
 
         # ===== RAW 概率（不校准）=====
@@ -338,7 +328,7 @@ if uploaded_file is not None:
         classes2 = model_lvl2.classes_.astype(str)
 
         if mask_lvl2.any():
-            pr2 = model_lvl2.predict_proba(df_input_L2[mask_lvl2])
+            pr2 = model_lvl2.predict_proba(df_input[mask_lvl2])
 
             # ===== RAW 概率（不校准）=====
             pr2_use = pr2
@@ -382,7 +372,7 @@ if uploaded_file is not None:
         p3unk = np.full(N, np.nan)
 
         if routed_to_L3:
-            all_pr3 = model_lvl3.predict_proba(df_input_L3[mask_lvl3])
+            all_pr3 = model_lvl3.predict_proba(df_input[mask_lvl3])
 
             # ===== RAW 概率（不校准）=====
             all_pr3_use = all_pr3
@@ -564,11 +554,10 @@ if uploaded_file is not None:
                         st.pyplot(plt.gcf()); plt.close()
 
         cols_shap = st.columns(3)
-        X_map = {"Level1": df_input_L1, "Level2": df_input_L2, "Level3": df_input_L3}
         for col, (mdl, nm) in zip(cols_shap, [(model_lvl1, "Level1"), (model_lvl2, "Level2"), (model_lvl3, "Level3")]):
             with col:
                 st.markdown(f"#### 🔍 {nm} (per class)")
-                _render_per_class(mdl, nm, X_map[nm])
+                _render_per_class(mdl, nm, df_input)
 
         # >>> NEW: 预计算 summary（含 L3 拆分）
         # =======================================================================
