@@ -76,7 +76,68 @@ if thr_L3 is None:
 imp_L1 = _load_joblib_pair("models/knn_imputer_Level1.joblib", "knn_imputer_Level1.joblib")
 imp_L2 = _load_joblib_pair("models/knn_imputer_Level2.joblib", "knn_imputer_Level2.joblib")
 imp_L3 = _load_joblib_pair("models/knn_imputer_Level3.joblib", "knn_imputer_Level3.joblib")
+def _load_imputer_cols(level_name: str):
+    p1 = f"models/knn_imputer_{level_name}_columns.json"
+    p2 = f"knn_imputer_{level_name}_columns.json"
+    p = p1 if os.path.exists(p1) else p2
+    if os.path.exists(p):
+        import json
+        with open(p, "r", encoding="utf-8") as f:
+            cols = json.load(f)
+        return [str(c) for c in cols]
+    return None
 
+def _expected_n_features(imp):
+    if imp is None:
+        return None
+    if hasattr(imp, "n_features_in_"):
+        try:
+            return int(getattr(imp, "n_features_in_"))
+        except Exception:
+            pass
+    if hasattr(imp, "statistics_"):
+        try:
+            return int(len(getattr(imp, "statistics_")))
+        except Exception:
+            pass
+    return None
+
+def _apply_imputer_strict(dfX: pd.DataFrame, imp, level_name: str, fallback_cols: list[str]):
+    """
+    1) 优先用训练时保存的 columns.json 来固定列顺序
+    2) 若没有 columns.json，则用 feature_list（fallback_cols）
+    3) 若列数与 imputer 期望不一致 -> 直接 stop（避免错位）
+    4) 若 imp=None -> 用上传数据临时 fit 一个 KNNImputer 兜底（会提示）
+    """
+    # 目标列顺序：优先 columns.json，其次 feature_list
+    cols = _load_imputer_cols(level_name) or list(fallback_cols)
+
+    # 对齐列：reindex 会自动补缺失列为 NaN、丢弃多余列，并按 cols 排序
+    dfX_aligned = dfX.reindex(columns=cols)
+    dfX_aligned = dfX_aligned.apply(pd.to_numeric, errors="coerce")
+
+    # 没有 imputer -> 临时兜底（不崩，但会提示）
+    if imp is None:
+        st.warning(f"⚠️ {level_name}: saved KNNImputer not found. Using a temporary KNNImputer fitted on uploaded data (results may be less stable).")
+        from sklearn.impute import KNNImputer
+        imp_tmp = KNNImputer(n_neighbors=5, weights="distance")
+        arr = imp_tmp.fit_transform(dfX_aligned)
+        return pd.DataFrame(arr, columns=cols, index=dfX.index)
+
+    # 有 imputer -> 检查列数一致性（不一致就停）
+    exp_n = _expected_n_features(imp)
+    if exp_n is not None and exp_n != len(cols):
+        st.error(
+            f"❌ {level_name}: imputer expects {exp_n} features, but current aligned columns = {len(cols)}.\n"
+            f"    This usually means your website feature_list / columns.json does NOT match training.\n"
+            f"    Please regenerate and upload matching knn_imputer_{level_name}_columns.json (recommended) "
+            f"or ensure feature_list is identical to training."
+        )
+        st.stop()
+
+    # 正常 transform
+    arr = imp.transform(dfX_aligned)
+    return pd.DataFrame(arr, columns=cols, index=dfX.index)
 # 载入 Tukey 区间（若存在）
 #q_low_L2  = _load_joblib_pair("models/q_low_Level2.joblib",  "q_low_Level2.joblib")
 #q_high_L2 = _load_joblib_pair("models/q_high_Level2.joblib", "q_high_Level2.joblib")
@@ -306,14 +367,12 @@ if uploaded_file is not None:
         for col in feature_list:
             if col not in df_input.columns: df_input[col] = np.nan
         df_input = to_numeric_df(df_input[feature_list])
-        # ✅ NEW: 用训练时保存的 imputer 填充缺失值（分别给 Level1/2/3）
-        def _apply_imputer(dfX: pd.DataFrame, imp, name: str) -> pd.DataFrame:
-            arr = imp.transform(dfX)
-            return pd.DataFrame(arr, columns=dfX.columns, index=dfX.index)
+        # ✅ 严格对齐列顺序 + 填充缺失值（每个 Level 用自己的 imputer）
+        df_input_L1 = _apply_imputer_strict(df_input, imp_L1, "Level1", fallback_cols=feature_list)
+        df_input_L2 = _apply_imputer_strict(df_input, imp_L2, "Level2", fallback_cols=feature_list)
+        df_input_L3 = _apply_imputer_strict(df_input, imp_L3, "Level3", fallback_cols=feature_list)
 
-        df_input_L1 = _apply_imputer(df_input, imp_L1, "Level1")
-        df_input_L2 = _apply_imputer(df_input, imp_L2, "Level2")
-        df_input_L3 = _apply_imputer(df_input, imp_L3, "Level3")
+
         N = len(df_input)
 
         # ========= Level 1 =========
