@@ -229,8 +229,8 @@ def preprocess_uploaded_data(df):
     # ===== 情况 1：用户已经分开给了 FeO 和 Fe2O3 =====
     if ("FeO" in orig_cols) and ("Fe2O3" in orig_cols):
         # 确保是数值
-        df["FeO"]   = pd.to_numeric(df["FeO"],   errors="coerce").fillna(0.0)
-        df["Fe2O3"] = pd.to_numeric(df["Fe2O3"], errors="coerce").fillna(0.0)
+        df["FeO"]   = pd.to_numeric(df["FeO"],   errors="coerce")
+        df["Fe2O3"] = pd.to_numeric(df["Fe2O3"], errors="coerce")
 
         # 为后续 Fe* / Fe# 计算建一份带 “re” 后缀的复制列
         df["FeOre"]   = df["FeO"]
@@ -241,34 +241,63 @@ def preprocess_uploaded_data(df):
     # ===== 情况 2：只有 FeOT，需要从 FeOT 拆成 FeO + Fe2O3 =====
     else:
         def fe_split_spinel(row, O_basis=32):
-            val_feot = 0.0 if pd.isna(row.get('FeOT', np.nan)) else float(row.get('FeOT'))
+            # 把各种 None/"None"/""/NaN 统一转成 0.0（仅用于 FeOT 拆分这一步）
+            def _num0(v):
+                v = pd.to_numeric(v, errors="coerce")
+                return 0.0 if pd.isna(v) else float(v)
 
-            # 其它氧化物的摩尔数（没有的按 0 处理）
-            moles = {ox: (row.get(ox, 0.0) or 0.0)/MW[ox] for ox in MW if ox != 'FeO'}
-            moles['FeO'] = val_feot / MW['FeO']
+            feot = pd.to_numeric(row.get("FeOT", np.nan), errors="coerce")
+            if pd.isna(feot):
+                # 没 FeOT 就没法拆
+                return pd.Series({
+                    "FeOre": np.nan, "Fe2O3re": np.nan,
+                    "Fe2_frac": np.nan, "Fe3_frac": np.nan,
+                    "FeO_total": np.nan
+                })
 
-            O_total = sum(moles[ox]*O_num[ox] for ox in moles)
-            fac = O_basis / O_total if O_total>0 else 0.0
-            cations = {ox: moles[ox]*Cat_num[ox]*fac for ox in moles}
-            S = sum(cations.values()); T = 24.0
+            # 其它氧化物：缺失按 0 参与（否则 O_total 会 NaN 直接全崩）
+            wt = {ox: _num0(row.get(ox, 0.0)) for ox in MW if ox != "FeO"}
 
-            Fe_total = cations['FeO']
-            Fe3 = max(0.0, 2*O_basis*(1 - T/S)) if S>0 else 0.0
+            moles = {ox: wt[ox] / MW[ox] for ox in wt}
+            moles["FeO"] = float(feot) / MW["FeO"]
+
+            O_total = sum(moles[ox] * O_num[ox] for ox in moles)
+            if (not np.isfinite(O_total)) or (O_total <= 0):
+                return pd.Series({
+                    "FeOre": np.nan, "Fe2O3re": np.nan,
+                    "Fe2_frac": np.nan, "Fe3_frac": np.nan,
+                    "FeO_total": np.nan
+                })
+
+            fac = O_basis / O_total
+            cations = {ox: moles[ox] * Cat_num[ox] * fac for ox in moles}
+            S = sum(cations.values())
+            T = 24.0
+
+            if (not np.isfinite(S)) or (S <= 0) or (not np.isfinite(cations["FeO"])) or (cations["FeO"] <= 0):
+                return pd.Series({
+                    "FeOre": np.nan, "Fe2O3re": np.nan,
+                    "Fe2_frac": np.nan, "Fe3_frac": np.nan,
+                    "FeO_total": np.nan
+                })
+
+            Fe_total = cations["FeO"]
+            Fe3 = max(0.0, 2 * O_basis * (1 - T / S))
             Fe3 = min(Fe3, Fe_total)
             Fe2 = Fe_total - Fe3
 
-            Fe2_frac = Fe2/Fe_total if Fe_total>0 else 0.0
-            Fe3_frac = Fe3/Fe_total if Fe_total>0 else 0.0
+            Fe2_frac = Fe2 / Fe_total if Fe_total > 0 else np.nan
+            Fe3_frac = Fe3 / Fe_total if Fe_total > 0 else np.nan
 
-            FeO_wt   = Fe2_frac * val_feot
-            Fe2O3_wt = Fe3_frac * val_feot * FE2O3_OVER_FEO_FE_EQ
+            FeO_wt = Fe2_frac * float(feot)
+            Fe2O3_wt = Fe3_frac * float(feot) * FE2O3_OVER_FEO_FE_EQ
 
             return pd.Series({
-                'FeOre':    FeO_wt,
-                'Fe2O3re':  Fe2O3_wt,
-                'Fe2_frac': Fe2_frac,
-                'Fe3_frac': Fe3_frac,
-                'FeO_total':FeO_wt + Fe2O3_wt*0.8998
+                "FeOre": FeO_wt,
+                "Fe2O3re": Fe2O3_wt,
+                "Fe2_frac": Fe2_frac,
+                "Fe3_frac": Fe3_frac,
+                "FeO_total": FeO_wt + Fe2O3_wt * 0.8998
             })
 
         extra = df.apply(fe_split_spinel, axis=1)
@@ -278,11 +307,12 @@ def preprocess_uploaded_data(df):
         df["FeO"]   = df["FeOre"]
         df["Fe2O3"] = df["Fe2O3re"]
         
-    df["TAC"] = df["TiO2"] / (df["TiO2"] + df["Al2O3"] + df["Cr2O3"])
+    den = (df["TiO2"] + df["Al2O3"] + df["Cr2O3"])
+    df["TAC"] = np.where(den > 0, df["TiO2"] / den, np.nan)
   
     for ox in MW:
         if ox not in df.columns:
-            df[ox] = 0.0
+            df[ox] = np.nan
 
    
     mol_wt = {'Cr2O3':151.99,'Al2O3':101.961,'MgO':40.304,'FeO':71.844,'Fe2O3':159.688}
