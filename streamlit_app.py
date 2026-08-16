@@ -76,7 +76,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.75, 1.30, 0.90, 0.05)
-    st.caption("Build: two-level-full-labels-v6")
+    st.caption("Build: two-level-full-labels-v7")
 
     
     def load_model_and_metadata():
@@ -647,7 +647,7 @@ if uploaded_file is not None:
         shap_layout = st.columns([0.08, 1.0, 0.16, 1.0, 0.08], gap="small")
         cols_shap = [shap_layout[1], shap_layout[3]]
         X_map = {"Level1": df_input_L1, "Level2": df_input_L2}
-        for col, (mdl, nm) in zip(cols_shap, [(model_lvl1, "Level1"), (model_lvl2, "Level2")]):
+        for col, (mdl, nm) in zip(shap_slots, [(model_lvl1, "Level1"), (model_lvl2, "Level2")]):
             with col:
                 st.markdown(f"#### 🔍 {nm} (per class)")
                 _render_per_class(mdl, nm, X_map[nm])
@@ -786,7 +786,7 @@ if uploaded_file is not None:
                     wedges, legend_labels, title="Class",
                     loc="center left", bbox_to_anchor=(1.02, 0.5),
                     frameon=False, fontsize=int(10*chart_scale),
-                    title_fontsize=int(11*chart_scale)
+                    title_fontsize=int(10*chart_scale)
                 )
                 ax.axis("equal")
                 ax.set_title(title, fontsize=int(13*chart_scale), pad=10)
@@ -817,7 +817,7 @@ if uploaded_file is not None:
                 ax.bar(range(len(x)), y, edgecolor="black", color=[PALETTE[i % len(PALETTE)] for i in range(len(x))])
                 ax.set_xticks(range(len(x)))
                 ax.set_xticklabels(x, rotation=28, ha="right", fontsize=int(10*chart_scale))
-                ax.set_ylabel("Count", fontsize=int(11*chart_scale))
+                ax.set_ylabel("Count", fontsize=int(10*chart_scale))
                 ax.set_title(title, fontsize=int(13*chart_scale))
 
                 ymax = max(max(y), 1)
