@@ -76,7 +76,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: two-level-full-labels-v10")
+    st.caption("Build: two-level-full-labels-v11")
 
     
     def load_model_and_metadata():
@@ -539,16 +539,28 @@ if uploaded_file is not None:
             overflow-x:auto!important;overflow-y:hidden;white-space:nowrap;
             scrollbar-width:thin;-ms-overflow-style:auto;
         }
-        .stTabs [data-baseweb="tab"]{white-space:nowrap;padding:7px 12px;margin:0 3px;font-size:15px!important;}
+        .stTabs [data-baseweb="tab"]{white-space:nowrap;padding:8px 13px;margin:0 3px;font-size:16px!important;}
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar{ height:8px; }
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb{ background:rgba(0,0,0,.25); border-radius:8px; }
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-track{ background:rgba(0,0,0,.06); border-radius:8px; }
-        .stRadio label {font-size:14px!important;}
+        .stRadio label {font-size:16px!important;}
+        .stRadio [role="radiogroup"] label p {font-size:16px!important;}
+        div[data-testid="stMarkdownContainer"] h4 {
+            font-size:24px!important;
+            margin-bottom:0.5rem!important;
+        }
         </style>
         """, unsafe_allow_html=True)
 
         TOP_K = 13
-        chart_kind = st.radio("Per-class SHAP view", ["Bar (mean |SHAP|)", "Beeswarm"], horizontal=True, index=0)
+        st.markdown("<div style='font-size:16px;font-weight:500;margin-bottom:2px;'>Per-class SHAP view</div>", unsafe_allow_html=True)
+        chart_kind = st.radio(
+            "Per-class SHAP view",
+            ["Bar (mean |SHAP|)", "Beeswarm"],
+            horizontal=True,
+            index=0,
+            label_visibility="collapsed"
+        )
 
         def _safe_class_names(m):
             try:
@@ -575,10 +587,10 @@ if uploaded_file is not None:
             fig, ax = plt.subplots(figsize=(4.6*chart_scale, 3.8*chart_scale))
             ax.barh(np.arange(len(vals)), vals)
             ax.set_yticks(np.arange(len(vals)))
-            ax.set_yticklabels(feats, fontsize=12)
-            ax.tick_params(axis="x", labelsize=11)
-            ax.set_xlabel("mean |SHAP|", fontsize=12)
-            ax.set_title(title, fontsize=15, pad=9)
+            ax.set_yticklabels(feats, fontsize=9)
+            ax.tick_params(axis="x", labelsize=8)
+            ax.set_xlabel("mean |SHAP|", fontsize=9)
+            ax.set_title(title, fontsize=11, pad=7)
             fig.tight_layout(pad=0.9)
             _show_shap_fig_compact(fig)
             plt.close(fig)
@@ -640,15 +652,15 @@ if uploaded_file is not None:
                         fig = plt.gcf()
                         fig.set_size_inches(4.6*chart_scale, 3.8*chart_scale, forward=True)
                         ax = plt.gca()
-                        ax.tick_params(axis="both", labelsize=11)
-                        ax.set_xlabel(ax.get_xlabel(), fontsize=12)
-                        ax.set_ylabel(ax.get_ylabel(), fontsize=12)
-                        plt.title(f"{level_name} · {cname}", fontsize=15, pad=9)
+                        ax.tick_params(axis="both", labelsize=9)
+                        ax.set_xlabel(ax.get_xlabel(), fontsize=9)
+                        ax.set_ylabel(ax.get_ylabel(), fontsize=9)
+                        plt.title(f"{level_name} · {cname}", fontsize=11, pad=7)
                         # SHAP may create a colorbar as a second axes; enlarge its text too.
                         if len(fig.axes) > 1:
                             for extra_ax in fig.axes[1:]:
-                                extra_ax.tick_params(labelsize=10)
-                                extra_ax.yaxis.label.set_size(11)
+                                extra_ax.tick_params(labelsize=8)
+                                extra_ax.yaxis.label.set_size(9)
                         plt.tight_layout(pad=0.9)
                         _show_shap_fig_compact(fig)
                         plt.close(fig)
