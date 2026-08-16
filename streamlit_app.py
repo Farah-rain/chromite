@@ -11,68 +11,51 @@ from itertools import chain
 st.set_page_config(page_title="Chromite Extraterrestrial Origin Classifier", layout="wide")
 st.title("✨ Chromite Extraterrestrial Origin Classifier")
 
-# -------------------- 全局网页字体（上传提示文字除外） --------------------
+# -------------------- 统一网页字体 --------------------
+# 主标题和 Predictions 保持原样；其余常规网页文字尽量统一为 15px
 st.markdown("""
 <style>
-/* 主要页面标题/分区标题 */
-h1 { font-size: 40px !important; }
-h2 { font-size: 27px !important; }
-h3 { font-size: 36px !important; }
-h4 { font-size: 30px !important; }
 
-/* 普通网页文字、caption、checkbox、按钮等整体放大 */
+/* ===== 统一字号 ===== */
 .stMarkdown p,
 [data-testid="stCaptionContainer"],
 [data-testid="stCheckbox"] label,
 .stButton button,
-.stDownloadButton button {
-    font-size: 16px !important;
+.stDownloadButton button,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] p,
+[data-testid="stFileUploader"] button,
+[data-testid="stFileUploader"] small,
+[data-testid="stFileUploader"] span,
+.stTabs [data-baseweb="tab"],
+.stRadio label,
+.stRadio [role="radiogroup"] label p {
+    font-size: 15px !important;
 }
 
-/* Predictions / summary 等 dataframe:
-   数据与表头统一为 10px，与图内 feature/tick 字号一致 */
-[data-testid="stDataFrame"] {
-    font-size: 10px !important;
-}
+/* 表格：表头和数据统一 */
+[data-testid="stDataFrame"],
 [data-testid="stDataFrame"] div,
 [data-testid="stDataFrame"] span,
 [data-testid="stDataFrame"] p,
 [data-testid="stDataFrame"] th,
 [data-testid="stDataFrame"] td {
-    font-size: 10px !important;
-}
-
-/* SHAP tab 及 radio 控件 */
-.stTabs [data-baseweb="tab"] {
-    font-size: 17px !important;
-    padding: 8px 14px !important;
-}
-.stRadio label,
-.stRadio [role="radiogroup"] label p {
-    font-size: 17px !important;
-}
-
-/* file uploader 内部按钮/文件名稍大 */
-[data-testid="stFileUploader"] button,
-[data-testid="stFileUploader"] small,
-[data-testid="stFileUploader"] span {
     font-size: 15px !important;
 }
 
-/* 但上传框上方原始提示文字保持原大小，不跟着全局放大 */
+/* Level1 / Level2 (per class) */
+div[data-testid="stMarkdownContainer"] h4 {
+    font-size: 15px !important;
+}
+
+/* 上传框上方那句说明文字：也统一为同样字号 */
 [data-testid="stFileUploader"] > label,
 [data-testid="stFileUploader"] > label p {
-    font-size: 14px !important;
-}
-
-/* 侧栏常用文字略放大 */
-[data-testid="stSidebar"] label,
-[data-testid="stSidebar"] p {
     font-size: 15px !important;
 }
+
 </style>
 """, unsafe_allow_html=True)
-
 
 # -------------------- 常量与映射（与训练一致） --------------------
 ABSTAIN_LABEL = "Unclassified"
@@ -139,7 +122,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: two-level-full-labels-v12")
+    st.caption("Build: two-level-unified-font-v13")
 
     
     def load_model_and_metadata():
@@ -602,21 +585,21 @@ if uploaded_file is not None:
             overflow-x:auto!important;overflow-y:hidden;white-space:nowrap;
             scrollbar-width:thin;-ms-overflow-style:auto;
         }
-        .stTabs [data-baseweb="tab"]{white-space:nowrap;padding:8px 14px;margin:0 3px;font-size:17px!important;}
+        .stTabs [data-baseweb="tab"]{white-space:nowrap;padding:8px 14px;margin:0 3px;font-size:15px!important;}
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar{ height:8px; }
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb{ background:rgba(0,0,0,.25); border-radius:8px; }
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-track{ background:rgba(0,0,0,.06); border-radius:8px; }
-        .stRadio label {font-size:17px!important;}
-        .stRadio [role="radiogroup"] label p {font-size:17px!important;}
+        .stRadio label {font-size:15px!important;}
+        .stRadio [role="radiogroup"] label p {font-size:15px!important;}
         div[data-testid="stMarkdownContainer"] h4 {
-            font-size:20px!important;
+            font-size:15px!important;
             margin-bottom:0.5rem!important;
         }
         </style>
         """, unsafe_allow_html=True)
 
         TOP_K = 13
-        st.markdown("<div style='font-size:17px;font-weight:500;margin-bottom:2px;'>Per-class SHAP view</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:15px;font-weight:500;margin-bottom:2px;'>Per-class SHAP view</div>", unsafe_allow_html=True)
         chart_kind = st.radio(
             "Per-class SHAP view",
             ["Bar (mean |SHAP|)", "Beeswarm"],
@@ -650,10 +633,10 @@ if uploaded_file is not None:
             fig, ax = plt.subplots(figsize=(4.6*chart_scale, 3.8*chart_scale))
             ax.barh(np.arange(len(vals)), vals)
             ax.set_yticks(np.arange(len(vals)))
-            ax.set_yticklabels(feats, fontsize=10)
-            ax.tick_params(axis="x", labelsize=10)
-            ax.set_xlabel("mean |SHAP|", fontsize=10)
-            ax.set_title(title, fontsize=13, pad=8)
+            ax.set_yticklabels(feats, fontsize=15)
+            ax.tick_params(axis="x", labelsize=15)
+            ax.set_xlabel("mean |SHAP|", fontsize=15)
+            ax.set_title(title, fontsize=15, pad=8)
             fig.tight_layout(pad=0.9)
             _show_shap_fig_compact(fig)
             plt.close(fig)
@@ -715,15 +698,15 @@ if uploaded_file is not None:
                         fig = plt.gcf()
                         fig.set_size_inches(4.6*chart_scale, 3.8*chart_scale, forward=True)
                         ax = plt.gca()
-                        ax.tick_params(axis="both", labelsize=10)
-                        ax.set_xlabel(ax.get_xlabel(), fontsize=10)
-                        ax.set_ylabel(ax.get_ylabel(), fontsize=10)
-                        plt.title(f"{level_name} · {cname}", fontsize=13, pad=8)
+                        ax.tick_params(axis="both", labelsize=15)
+                        ax.set_xlabel(ax.get_xlabel(), fontsize=15)
+                        ax.set_ylabel(ax.get_ylabel(), fontsize=15)
+                        plt.title(f"{level_name} · {cname}", fontsize=15, pad=8)
                         # SHAP may create a colorbar as a second axes; enlarge its text too.
                         if len(fig.axes) > 1:
                             for extra_ax in fig.axes[1:]:
-                                extra_ax.tick_params(labelsize=9)
-                                extra_ax.yaxis.label.set_size(10)
+                                extra_ax.tick_params(labelsize=15)
+                                extra_ax.yaxis.label.set_size(15)
                         plt.tight_layout(pad=0.9)
                         _show_shap_fig_compact(fig)
                         plt.close(fig)
@@ -863,18 +846,18 @@ if uploaded_file is not None:
                     autopct=_autopct, pctdistance=0.72,
                     labeldistance=1.10,
                     wedgeprops=dict(linewidth=0.9, edgecolor="white"),
-                    textprops=dict(fontsize=int(10*chart_scale))
+                    textprops=dict(fontsize=15)
                 )
 
                 legend_labels = [f"{lab}, {_fmt_frac(sh)}" for lab, sh in zip(df_in["Class"], df_in["share"])]
                 ax.legend(
                     wedges, legend_labels, title="Class",
                     loc="center left", bbox_to_anchor=(1.02, 0.5),
-                    frameon=False, fontsize=int(10*chart_scale),
-                    title_fontsize=int(10*chart_scale)
+                    frameon=False, fontsize=15,
+                    title_fontsize=15
                 )
                 ax.axis("equal")
-                ax.set_title(title, fontsize=int(13*chart_scale), pad=10)
+                ax.set_title(title, fontsize=15, pad=10)
 
                 st.pyplot(fig)
                 st.download_button(
@@ -901,14 +884,14 @@ if uploaded_file is not None:
                 y = df["count"].astype(int).tolist()
                 ax.bar(range(len(x)), y, edgecolor="black", color=[PALETTE[i % len(PALETTE)] for i in range(len(x))])
                 ax.set_xticks(range(len(x)))
-                ax.set_xticklabels(x, rotation=28, ha="right", fontsize=int(10*chart_scale))
-                ax.set_ylabel("Count", fontsize=int(10*chart_scale))
-                ax.set_title(title, fontsize=int(13*chart_scale))
+                ax.set_xticklabels(x, rotation=28, ha="right", fontsize=15)
+                ax.set_ylabel("Count", fontsize=15)
+                ax.set_title(title, fontsize=15)
 
                 ymax = max(max(y), 1)
                 ax.set_ylim(0, ymax * 1.18)
                 for i, yi in enumerate(y):
-                    ax.text(i, yi + ymax * 0.02, f"{yi}/{total_n}", ha="center", va="bottom", fontsize=int(10*chart_scale))
+                    ax.text(i, yi + ymax * 0.02, f"{yi}/{total_n}", ha="center", va="bottom", fontsize=15)
 
                 plt.subplots_adjust(left=0.10, right=0.98, top=0.92, bottom=0.28)
                 st.pyplot(fig)
@@ -1017,3 +1000,4 @@ if uploaded_file is not None:
         st.exception(e)
 else:
     st.info("Please upload a data file to proceed.")
+    
