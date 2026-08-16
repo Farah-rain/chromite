@@ -76,7 +76,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: two-level-full-labels-v9")
+    st.caption("Build: two-level-full-labels-v10")
 
     
     def load_model_and_metadata():
@@ -941,6 +941,4 @@ if uploaded_file is not None:
         st.error("Error while processing the uploaded file.")
         st.exception(e)
 else:
-    st.info("Please upload a data file to proce
-   
-            
+    st.info("Please upload a data file to proceed.")
