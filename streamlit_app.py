@@ -146,21 +146,41 @@ div[data-testid="stExpander"] details > summary:hover {
     background: #dceeff !important;
 }
 
-/* center the header content */
+/* header positioning: text centered independently of the arrow */
+div[data-testid="stExpander"] details > summary {
+    position: relative !important;
+}
+
 div[data-testid="stExpander"] details > summary > div {
     width: 100% !important;
+    display: flex !important;
     justify-content: center !important;
     align-items: center !important;
 }
 
-/* larger centered expander text */
+/* truly centered header text */
 div[data-testid="stExpander"] details > summary p {
     width: 100% !important;
     margin: 0 !important;
+    padding-left: 52px !important;
+    padding-right: 52px !important;
     text-align: center !important;
     font-size: 22px !important;
     font-weight: 700 !important;
     line-height: 1.35 !important;
+    color: #245b8f !important;
+}
+
+/* larger, bolder expander chevron on the far right */
+div[data-testid="stExpander"] details > summary svg {
+    position: absolute !important;
+    right: 18px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    width: 30px !important;
+    height: 30px !important;
+    min-width: 30px !important;
+    stroke-width: 3.2 !important;
     color: #245b8f !important;
 }
 
@@ -287,7 +307,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: blue-expanders-v32")
+    st.caption("Build: centered-expanders-v33")
 
     
     def load_model_and_metadata():
@@ -1446,3 +1466,4 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
