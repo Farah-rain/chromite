@@ -7,7 +7,7 @@ lightgbm
 openpyxl
 shap
 joblib
-streamlit==1.41.1
+streamlit==1.60.0
 xlsxwriter
 
 
