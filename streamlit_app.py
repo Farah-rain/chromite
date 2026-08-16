@@ -200,38 +200,39 @@ div[data-testid="stExpander"] {
     margin-bottom: 12px !important;
 }
 
-/* expander header */
+/* Streamlit 1.60 expander header: keep the label genuinely centered */
 div[data-testid="stExpander"] details > summary {
+    position: relative !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-height: 60px !important;
+    padding: 0 68px !important;
+    box-sizing: border-box !important;
     background: #eaf4ff !important;
     border-radius: 11px !important;
-    padding: 13px 18px !important;
-    min-height: 54px !important;
+    list-style: none !important;
+    cursor: pointer !important;
     transition: background-color 0.18s ease, border-color 0.18s ease;
 }
 
-/* subtle hover */
+/* remove the browser's own details marker */
+div[data-testid="stExpander"] details > summary::-webkit-details-marker {
+    display: none !important;
+}
+
 div[data-testid="stExpander"] details > summary:hover {
     background: #dceeff !important;
 }
 
-/* header positioning: text centered independently of the arrow */
-div[data-testid="stExpander"] details > summary {
-    position: relative !important;
-}
-
-div[data-testid="stExpander"] details > summary > div {
+/* In current Streamlit the expander label is carried by a span, not the old p wrapper. */
+div[data-testid="stExpander"] details > summary > span {
+    flex: 1 1 auto !important;
     width: 100% !important;
     display: flex !important;
-    justify-content: center !important;
     align-items: center !important;
-}
-
-/* truly centered header text */
-div[data-testid="stExpander"] details > summary p {
-    width: 100% !important;
+    justify-content: center !important;
     margin: 0 !important;
-    padding-left: 52px !important;
-    padding-right: 52px !important;
     text-align: center !important;
     font-size: 22px !important;
     font-weight: 700 !important;
@@ -239,17 +240,41 @@ div[data-testid="stExpander"] details > summary p {
     color: #245b8f !important;
 }
 
-/* larger, bolder expander chevron on the far right */
-div[data-testid="stExpander"] details > summary svg {
+/* also cover any nested markdown/text wrapper Streamlit inserts */
+div[data-testid="stExpander"] details > summary > span *,
+div[data-testid="stExpander"] details > summary p {
+    margin: 0 !important;
+    padding: 0 !important;
+    text-align: center !important;
+    font-size: 22px !important;
+    font-weight: 700 !important;
+    line-height: 1.35 !important;
+    color: #245b8f !important;
+}
+
+/* Hide Streamlit's tiny built-in chevron and draw a larger, cleaner one on the right. */
+div[data-testid="stExpander"] details > summary > svg {
+    display: none !important;
+}
+
+div[data-testid="stExpander"] details > summary::after {
+    content: "▾";
     position: absolute !important;
-    right: 18px !important;
+    right: 22px !important;
     top: 50% !important;
     transform: translateY(-50%) !important;
-    width: 30px !important;
-    height: 30px !important;
-    min-width: 30px !important;
-    stroke-width: 3.2 !important;
+    transform-origin: center !important;
+    font-family: Arial, sans-serif !important;
+    font-size: 30px !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
     color: #245b8f !important;
+    pointer-events: none !important;
+    transition: transform 0.18s ease !important;
+}
+
+div[data-testid="stExpander"] details[open] > summary::after {
+    transform: translateY(-50%) rotate(180deg) !important;
 }
 
 /* keep the open-panel body clean */
@@ -257,6 +282,11 @@ div[data-testid="stExpander"] details[open] > summary {
     border-bottom-left-radius: 0 !important;
     border-bottom-right-radius: 0 !important;
     border-bottom: 1px solid #d4e4f5 !important;
+}
+
+/* Streamlit 1.60 uploader button: remove the new small upload glyph for a cleaner research UI. */
+div[data-testid="stFileUploader"] button svg {
+    display: none !important;
 }
 .footer-note {
     color: #8a93a0;
@@ -379,9 +409,10 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: single-line-hero-v40")
+    st.caption("Build: staged-upload-v41")
 
     
+    @st.cache_resource
     def load_model_and_metadata():
         def _load(p1, p2): return joblib.load(p1) if os.path.exists(p1) else joblib.load(p2)
         model_lvl1 = _load("models/model_level1.pkl", "model_level1.pkl")
@@ -407,6 +438,7 @@ with st.sidebar:
         st.exception(e)
 
 # 载入校准器 & 类阈值（若存在）
+@st.cache_resource
 def _load_joblib_pair(primary_path, fallback_path):
     p = primary_path if os.path.exists(primary_path) else fallback_path
     return joblib.load(p) if os.path.exists(p) else None
@@ -889,10 +921,28 @@ else:
 
 # -------------------- 上传文件并处理 --------------------
 uploaded_file = st.file_uploader(
-    "Upload an Excel or CSV file (please replace your FeO with FeOT, If you did not measure FeO and Fe2O3 separately).", type=["xlsx", "csv"]
+    "Upload an Excel or CSV file (please replace your FeO with FeOT, If you did not measure FeO and Fe2O3 separately).",
+    type=["xlsx", "csv"],
+    key="chromite_data_uploader"
 )
 
 if uploaded_file is not None:
+    # Stage 1: confirm that Streamlit has actually received the file before any model/SHAP work starts.
+    file_signature = f"{uploaded_file.name}:{getattr(uploaded_file, 'size', 0)}"
+    if st.session_state.get("active_upload_signature") != file_signature:
+        st.session_state["active_upload_signature"] = file_signature
+        st.session_state["classification_requested"] = False
+
+    file_size_kb = float(getattr(uploaded_file, "size", 0)) / 1024.0
+    st.success(f"✅ File uploaded successfully: {uploaded_file.name} ({file_size_kb:.1f} KB)")
+
+    if st.button("▶ Run classification", type="primary", key="run_classification_button"):
+        st.session_state["classification_requested"] = True
+
+    if not st.session_state.get("classification_requested", False):
+        st.info("The file has been received. Click **Run classification** to start preprocessing, prediction, and SHAP analysis.")
+        st.stop()
+
     try:
         df_uploaded = (pd.read_csv(uploaded_file) if uploaded_file.name.lower().endswith(".csv")
                        else pd.read_excel(uploaded_file))
@@ -1000,7 +1050,7 @@ if uploaded_file is not None:
         })
         render_big_scroll_table(df_preview, height=320, font_px=21)
 
-        with st.expander("📊 Show full analytical details and class probabilities", expanded=False):
+        with st.expander("Show full analytical details and class probabilities", expanded=False):
             render_big_scroll_table(df_display, height=430, font_px=19)
 
         # -------------------- SHAP：tabs 横向滚动 + 两列并排 --------------------
@@ -1377,7 +1427,7 @@ if uploaded_file is not None:
 
         # -------------------- 自愿数据分享（默认折叠） --------------------
         with st.expander(
-            "🤝 Would you like to share your data with us to help expand the database and improve future model retraining?",
+            "Would you like to share your data with us to help expand the database and improve future model retraining?",
             expanded=False
         ):
             st.caption(
