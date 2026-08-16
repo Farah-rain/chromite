@@ -332,51 +332,63 @@ div[data-testid="stFileUploader"] button svg {
     height: 20px !important;
 }
 
-/* ---------- uploaded-file card: larger filename/card for Streamlit 1.60 ---------- */
-div[data-testid="stFileUploader"] [data-testid*="FileUploaderFile"] {
-    min-height: 72px !important;
-    min-width: 285px !important;
-    padding: 10px 14px !important;
-    border-radius: 9px !important;
-    align-items: center !important;
+/* ---------- uploaded-file card: enlarge filename in Streamlit 1.60 ---------- */
+
+/* Keep the selected-file chip comfortably sized. */
+div[data-testid="stFileUploader"] section {
+    min-height: 76px !important;
 }
 
-/* Streamlit has changed the internal uploader markup across versions.
-   These broader selectors ensure the actual filename is enlarged. */
-div[data-testid="stFileUploader"] [data-testid*="FileUploaderFile"] p,
-div[data-testid="stFileUploader"] [data-testid*="FileUploaderFile"] span,
-div[data-testid="stFileUploader"] [data-testid*="FileUploaderFileName"] {
-    font-size: 23px !important;
-    line-height: 1.25 !important;
+/*
+Current Streamlit versions render the selected file row without a stable
+public filename test-id. The row *does* contain the remove/clear button,
+so :has() gives us a much more reliable hook than the old test-id guess.
+*/
+div[data-testid="stFileUploader"] section div:has(button[aria-label*="remove" i]),
+div[data-testid="stFileUploader"] section div:has(button[aria-label*="delete" i]),
+div[data-testid="stFileUploader"] section div:has(button[aria-label*="clear" i]) {
+    min-height: 54px !important;
+}
+
+/* Actual uploaded filename: make it visibly larger. */
+div[data-testid="stFileUploader"] section div:has(button[aria-label*="remove" i]) p,
+div[data-testid="stFileUploader"] section div:has(button[aria-label*="remove" i]) span,
+div[data-testid="stFileUploader"] section div:has(button[aria-label*="delete" i]) p,
+div[data-testid="stFileUploader"] section div:has(button[aria-label*="delete" i]) span,
+div[data-testid="stFileUploader"] section div:has(button[aria-label*="clear" i]) p,
+div[data-testid="stFileUploader"] section div:has(button[aria-label*="clear" i]) span {
+    font-size: 22px !important;
+    line-height: 1.22 !important;
     font-weight: 500 !important;
 }
 
-/* Keep the file-size line secondary but still readable. */
-div[data-testid="stFileUploader"] [data-testid*="FileUploaderFileSize"],
-div[data-testid="stFileUploader"] [data-testid*="FileUploaderFile"] small {
-    font-size: 16px !important;
-    line-height: 1.2 !important;
+/* Extra fallback hooks used by some Streamlit builds for filename tooltips. */
+div[data-testid="stFileUploader"] [title$=".xlsx" i],
+div[data-testid="stFileUploader"] [title$=".xls" i],
+div[data-testid="stFileUploader"] [title$=".csv" i],
+div[data-testid="stFileUploader"] [aria-label$=".xlsx" i],
+div[data-testid="stFileUploader"] [aria-label$=".xls" i],
+div[data-testid="stFileUploader"] [aria-label$=".csv" i] {
+    font-size: 22px !important;
+    line-height: 1.22 !important;
+    font-weight: 500 !important;
+}
+
+/* File size should remain secondary, not become as large as the filename. */
+div[data-testid="stFileUploader"] section small {
+    font-size: 14px !important;
+    line-height: 1.15 !important;
     font-weight: 400 !important;
 }
 
-/* File icon / remove button: scale with the larger card */
-div[data-testid="stFileUploader"] [data-testid*="FileUploaderFile"] button {
-    min-width: 42px !important;
-    min-height: 42px !important;
-    width: 42px !important;
-    height: 42px !important;
-    padding: 7px !important;
+/* Keep remove icon easy to click. */
+div[data-testid="stFileUploader"] section button[aria-label*="remove" i],
+div[data-testid="stFileUploader"] section button[aria-label*="delete" i],
+div[data-testid="stFileUploader"] section button[aria-label*="clear" i] {
+    min-width: 34px !important;
+    min-height: 34px !important;
 }
 
-div[data-testid="stFileUploader"] [data-testid*="FileUploaderFile"] button svg {
-    width: 24px !important;
-    height: 24px !important;
-}
-
-/* Add-another-file control */
-div[data-testid="stFileUploader"] button[aria-label*="file" i] {
-    font-size: 23px !important;
-}
 .footer-note {
     color: #8a93a0;
     font-size: 13px;
@@ -502,7 +514,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: larger-headings-filecard-v44")
+    st.caption("Build: compact-shap-larger-filename-v45")
 
     
     @st.cache_resource
@@ -1249,10 +1261,10 @@ if uploaded_file is not None:
             fig, ax = plt.subplots(figsize=(5.8*chart_scale, 4.3*chart_scale))
             ax.barh(np.arange(len(vals)), vals)
             ax.set_yticks(np.arange(len(vals)))
-            ax.set_yticklabels(feats, fontsize=14)
-            ax.tick_params(axis="x", labelsize=14)
-            ax.set_xlabel("mean |SHAP|", fontsize=14)
-            ax.set_title(title, fontsize=17, pad=12)
+            ax.set_yticklabels(feats, fontsize=10)
+            ax.tick_params(axis="x", labelsize=10)
+            ax.set_xlabel("mean |SHAP|", fontsize=11)
+            ax.set_title(title, fontsize=12, pad=8)
             fig.tight_layout(pad=0.9)
             _show_shap_fig_compact(fig)
             plt.close(fig)
@@ -1320,15 +1332,15 @@ if uploaded_file is not None:
                         fig = plt.gcf()
                         fig.set_size_inches(5.8*chart_scale, 4.3*chart_scale, forward=True)
                         ax = plt.gca()
-                        ax.tick_params(axis="both", labelsize=14)
-                        ax.set_xlabel(ax.get_xlabel(), fontsize=14)
-                        ax.set_ylabel(ax.get_ylabel(), fontsize=14)
-                        plt.title(f"{level_name} · {cname}", fontsize=17, pad=12)
+                        ax.tick_params(axis="both", labelsize=10)
+                        ax.set_xlabel(ax.get_xlabel(), fontsize=11)
+                        ax.set_ylabel(ax.get_ylabel(), fontsize=11)
+                        plt.title(f"{level_name} · {cname}", fontsize=12, pad=8)
                         # SHAP may create a colorbar as a second axes; enlarge its text too.
                         if len(fig.axes) > 1:
                             for extra_ax in fig.axes[1:]:
-                                extra_ax.tick_params(labelsize=12)
-                                extra_ax.yaxis.label.set_size(12)
+                                extra_ax.tick_params(labelsize=10)
+                                extra_ax.yaxis.label.set_size(10)
                         plt.tight_layout(pad=0.9)
                         _show_shap_fig_compact(fig)
                         plt.close(fig)
