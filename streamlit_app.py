@@ -136,7 +136,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: six-charts-large-v24")
+    st.caption("Build: stats-fonts-larger-v25")
 
     
     def load_model_and_metadata():
@@ -767,8 +767,8 @@ if uploaded_file is not None:
         STATS_FIGSIZE = (5.8, 4.3)   # 四张图完全相同
         STATS_DPI = 120
         STATS_DISPLAY_WIDTH = 560    # 网页上四张图完全相同宽度
-        STATS_FONT = 10
-        STATS_TITLE_FONT = 12
+        STATS_FONT = 13
+        STATS_TITLE_FONT = 15
 
         def _stats_png_bytes(fig):
             buf = BytesIO()
