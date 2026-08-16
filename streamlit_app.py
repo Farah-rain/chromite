@@ -111,12 +111,21 @@ st.markdown("""
 .stTabs [data-baseweb="tab"],
 .stRadio label,
 .stRadio [role="radiogroup"] label p {
-    font-size: 21px !important;
+    font-size: 24px !important;
+}
+
+/* Main section headings (Prediction Results, SHAP, summary, distribution, etc.) */
+h3,
+div[data-testid="stMarkdownContainer"] h3,
+[data-testid="stHeadingWithActionElements"] h3 {
+    font-size: 31px !important;
+    line-height: 1.25 !important;
 }
 
 /* Level1 / Level2 (per class) */
 div[data-testid="stMarkdownContainer"] h4 {
-    font-size: 26px !important;
+    font-size: 30px !important;
+    line-height: 1.25 !important;
 }
 
 /* 上传框内部稍大；上传框上方说明保持较小 */
@@ -135,7 +144,7 @@ div[data-testid="stMarkdownContainer"] h4 {
 [data-testid="stCheckbox"] label,
 [data-testid="stCheckbox"] label p,
 [data-testid="stCheckbox"] span {
-    font-size: 21px !important;
+    font-size: 24px !important;
 }
 
 /* larger download / normal buttons */
@@ -322,6 +331,50 @@ div[data-testid="stFileUploader"] button svg {
     width: 20px !important;
     height: 20px !important;
 }
+
+/* ---------- uploaded-file card: make the selected file much easier to read ---------- */
+div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] {
+    min-height: 64px !important;
+    min-width: 245px !important;
+    padding: 9px 12px !important;
+    border-radius: 8px !important;
+    align-items: center !important;
+}
+
+/* Filename: roughly the same visual size as the uploader label above */
+div[data-testid="stFileUploader"] [data-testid="stFileUploaderFileName"],
+div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] p:first-of-type,
+div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] span:first-of-type {
+    font-size: 20px !important;
+    line-height: 1.25 !important;
+    font-weight: 500 !important;
+}
+
+/* File size remains secondary, but no longer tiny */
+div[data-testid="stFileUploader"] [data-testid="stFileUploaderFileSize"],
+div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] small {
+    font-size: 14px !important;
+    line-height: 1.2 !important;
+}
+
+/* File icon / remove button: scale with the larger file card */
+div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] button {
+    min-width: 38px !important;
+    min-height: 38px !important;
+    width: 38px !important;
+    height: 38px !important;
+    padding: 6px !important;
+}
+
+div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] button svg {
+    width: 22px !important;
+    height: 22px !important;
+}
+
+/* The + add-another-file control should not look undersized beside the file card */
+div[data-testid="stFileUploader"] button[aria-label*="file" i] {
+    font-size: 21px !important;
+}
 .footer-note {
     color: #8a93a0;
     font-size: 13px;
@@ -447,7 +500,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: auto-upload-polished-v42")
+    st.caption("Build: enlarged-typography-v43")
 
     
     @st.cache_resource
@@ -1104,7 +1157,7 @@ if uploaded_file is not None:
             white-space:nowrap!important;
             padding:10px 16px!important;
             margin:0 3px!important;
-            font-size:27px!important;
+            font-size:31px!important;
         }
         div[data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar{
             display:block!important;
@@ -1119,17 +1172,17 @@ if uploaded_file is not None:
             background:#e9edf2!important;
             border-radius:8px!important;
         }
-        .stRadio label {font-size:21px!important;}
-        .stRadio [role="radiogroup"] label p {font-size:21px!important;}
+        .stRadio label {font-size:24px!important;}
+        .stRadio [role="radiogroup"] label p {font-size:24px!important;}
         div[data-testid="stMarkdownContainer"] h4 {
-            font-size:26px!important;
+            font-size:30px!important;
             margin-bottom:0.5rem!important;
         }
         </style>
         """, unsafe_allow_html=True)
 
         TOP_K = 13
-        st.markdown("<div style='font-size:21px;font-weight:500;margin-bottom:6px;'>Per-class SHAP view</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:24px;font-weight:500;margin-bottom:8px;'>Per-class SHAP view</div>", unsafe_allow_html=True)
         chart_kind = st.radio(
             "Per-class SHAP view",
             ["Bar (mean |SHAP|)", "Beeswarm"],
@@ -1157,8 +1210,8 @@ if uploaded_file is not None:
         STATS_FIGSIZE = (7.2, 4.9)   # 四张图完全相同，稍微放宽以容纳 legend
         STATS_DPI = 120
         STATS_DISPLAY_WIDTH = 680    # 网页上四张图完全相同宽度
-        STATS_FONT = 15
-        STATS_TITLE_FONT = 17
+        STATS_FONT = 17
+        STATS_TITLE_FONT = 20
 
         def _stats_png_bytes(fig):
             buf = BytesIO()
@@ -1194,10 +1247,10 @@ if uploaded_file is not None:
             fig, ax = plt.subplots(figsize=(5.8*chart_scale, 4.3*chart_scale))
             ax.barh(np.arange(len(vals)), vals)
             ax.set_yticks(np.arange(len(vals)))
-            ax.set_yticklabels(feats, fontsize=10)
-            ax.tick_params(axis="x", labelsize=10)
-            ax.set_xlabel("mean |SHAP|", fontsize=10)
-            ax.set_title(title, fontsize=12, pad=8)
+            ax.set_yticklabels(feats, fontsize=12)
+            ax.tick_params(axis="x", labelsize=12)
+            ax.set_xlabel("mean |SHAP|", fontsize=12)
+            ax.set_title(title, fontsize=15, pad=10)
             fig.tight_layout(pad=0.9)
             _show_shap_fig_compact(fig)
             plt.close(fig)
@@ -1265,15 +1318,15 @@ if uploaded_file is not None:
                         fig = plt.gcf()
                         fig.set_size_inches(5.8*chart_scale, 4.3*chart_scale, forward=True)
                         ax = plt.gca()
-                        ax.tick_params(axis="both", labelsize=10)
-                        ax.set_xlabel(ax.get_xlabel(), fontsize=10)
-                        ax.set_ylabel(ax.get_ylabel(), fontsize=10)
-                        plt.title(f"{level_name} · {cname}", fontsize=12, pad=8)
+                        ax.tick_params(axis="both", labelsize=12)
+                        ax.set_xlabel(ax.get_xlabel(), fontsize=12)
+                        ax.set_ylabel(ax.get_ylabel(), fontsize=12)
+                        plt.title(f"{level_name} · {cname}", fontsize=15, pad=10)
                         # SHAP may create a colorbar as a second axes; enlarge its text too.
                         if len(fig.axes) > 1:
                             for extra_ax in fig.axes[1:]:
-                                extra_ax.tick_params(labelsize=10)
-                                extra_ax.yaxis.label.set_size(10)
+                                extra_ax.tick_params(labelsize=12)
+                                extra_ax.yaxis.label.set_size(12)
                         plt.tight_layout(pad=0.9)
                         _show_shap_fig_compact(fig)
                         plt.close(fig)
