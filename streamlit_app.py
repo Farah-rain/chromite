@@ -39,11 +39,11 @@ div[data-testid="stMarkdownContainer"] h4 {
 [data-testid="stFileUploader"] button,
 [data-testid="stFileUploader"] small,
 [data-testid="stFileUploader"] span {
-    font-size: 20px !important;
+    font-size: 24px !important;
 }
 [data-testid="stFileUploader"] > label,
 [data-testid="stFileUploader"] > label p {
-    font-size: 18px !important;
+    font-size: 20px !important;
 }
 
 
@@ -109,6 +109,39 @@ LEVEL2_DISPLAY_MAP = {
     "unclassified": "Unclassified",
 }
 
+
+# -------------------- 特征显示映射（用于图中下标） --------------------
+FEATURE_DISPLAY_MAP = {
+    "MgO": "MgO",
+    "Al2O3": "Al₂O₃",
+    "TiO2": "TiO₂",
+    "V2O3": "V₂O₃",
+    "Cr2O3": "Cr₂O₃",
+    "MnO": "MnO",
+    "FeOT": r"FeO$_T$",
+    "FeO": "FeO",
+    "Fe2O3": "Fe₂O₃",
+    "FeOre": "FeO",
+    "Fe2O3re": "Fe₂O₃",
+    "FeO_total": "FeO total",
+    "SiO2": "SiO₂",
+    "ZnO": "ZnO",
+    "Cr#": "Cr#",
+    "Mg#": "Mg#",
+    "Fe*": "Fe*",
+    "Fe2_frac": "Fe²⁺ frac",
+    "Fe3_frac": "Fe³⁺ frac",
+    "TAC": "TAC",
+    "Total": "Total",
+    "Unnamed: 0": "Unnamed: 0",
+}
+
+def display_feature_label(x: str) -> str:
+    return FEATURE_DISPLAY_MAP.get(str(x), str(x))
+
+def display_feature_labels(seq):
+    return [display_feature_label(x) for x in seq]
+
 def display_level1_label(label):
     if pd.isna(label):
         return label
@@ -136,7 +169,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: stats-fonts-larger-v25")
+    st.caption("Build: pretty-subscripts-v27")
 
     
     def load_model_and_metadata():
@@ -797,7 +830,7 @@ if uploaded_file is not None:
             mean_abs = np.mean(np.abs(shap_vals_1class), axis=0).reshape(-1)
             order = np.argsort(mean_abs); k = min(top_k, len(order))
             sel = order[-k:]
-            feats = np.array(X.columns)[sel]
+            feats = np.array(display_feature_labels(X.columns))[sel]
             vals  = mean_abs[sel]
 
             # 紧凑版：保留 13 个特征，但不让图占满整个网页。
@@ -865,7 +898,9 @@ if uploaded_file is not None:
                     if chart_kind.startswith("Bar"):
                         _bar_per_class(arr, X, title=f"{level_name} · {cname}", top_k=TOP_K)
                     else:
-                        shap.summary_plot(arr, X, max_display=TOP_K, show=False)
+                        X_disp = X.copy()
+                        X_disp.columns = display_feature_labels(X.columns)
+                        shap.summary_plot(arr, X_disp, max_display=TOP_K, show=False)
                         fig = plt.gcf()
                         fig.set_size_inches(5.8*chart_scale, 4.3*chart_scale, forward=True)
                         ax = plt.gca()
@@ -1037,7 +1072,7 @@ if uploaded_file is not None:
                     borderaxespad=0.0
                 )
                 ax.axis("equal")
-                ax.set_title(title, fontsize=STATS_TITLE_FONT, pad=6)
+                fig.suptitle(title, fontsize=STATS_TITLE_FONT, y=0.95)
 
                 _show_fixed_stats_fig(fig, title)
                 plt.close(fig)
@@ -1064,7 +1099,7 @@ if uploaded_file is not None:
                 ax.set_xticklabels(x, rotation=28, ha="right", fontsize=STATS_FONT)
                 ax.set_ylabel("Count", fontsize=STATS_FONT)
                 ax.tick_params(axis="both", labelsize=STATS_FONT)
-                ax.set_title(title, fontsize=STATS_TITLE_FONT, pad=6)
+                fig.suptitle(title, fontsize=STATS_TITLE_FONT, y=0.95)
 
                 ymax = max(max(y), 1)
                 ax.set_ylim(0, ymax * 1.18)
