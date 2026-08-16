@@ -75,8 +75,8 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 # -------------------- 右侧控制（字体/尺寸缩放 A±） --------------------
 with st.sidebar:
     st.subheader("Display / Models")
-    chart_scale = st.slider("Chart scale (A±)", 0.8, 1.6, 1.0, 0.05)
-    st.caption("Build: two-level-full-labels-v5")
+    chart_scale = st.slider("Chart scale (A±)", 0.75, 1.30, 0.90, 0.05)
+    st.caption("Build: two-level-full-labels-v6")
 
     
     def load_model_and_metadata():
@@ -555,20 +555,32 @@ if uploaded_file is not None:
             except Exception:
                 return []
 
+        def _show_shap_fig_compact(fig):
+            # 新版 Streamlit 用 width="content"，旧版则回退到 use_container_width=False。
+            # 这样 Matplotlib 图保持自己的尺寸，不再自动铺满整列。
+            try:
+                st.pyplot(fig, width="content")
+            except TypeError:
+                st.pyplot(fig, use_container_width=False)
+
         def _bar_per_class(shap_vals_1class, X, title, top_k=TOP_K):
             mean_abs = np.mean(np.abs(shap_vals_1class), axis=0).reshape(-1)
             order = np.argsort(mean_abs); k = min(top_k, len(order))
             sel = order[-k:]
             feats = np.array(X.columns)[sel]
             vals  = mean_abs[sel]
-            fig, ax = plt.subplots(figsize=(7*chart_scale, (2.6+0.28*len(sel))*chart_scale))
+
+            # 紧凑版：保留 13 个特征，但不让图占满整个网页。
+            fig, ax = plt.subplots(figsize=(5.5*chart_scale, 4.5*chart_scale))
             ax.barh(np.arange(len(vals)), vals)
             ax.set_yticks(np.arange(len(vals)))
-            ax.set_yticklabels(feats)
-            ax.set_xlabel("mean |SHAP|")
-            ax.set_title(title)
-            fig.tight_layout()
-            st.pyplot(fig); plt.close(fig)
+            ax.set_yticklabels(feats, fontsize=max(8, int(9*chart_scale)))
+            ax.tick_params(axis="x", labelsize=max(8, int(9*chart_scale)))
+            ax.set_xlabel("mean |SHAP|", fontsize=max(9, int(10*chart_scale)))
+            ax.set_title(title, fontsize=max(10, int(12*chart_scale)), pad=8)
+            fig.tight_layout(pad=0.9)
+            _show_shap_fig_compact(fig)
+            plt.close(fig)
 
         def _sv_to_list_per_class(sv, X, class_names):
             N, F = X.shape
@@ -624,10 +636,16 @@ if uploaded_file is not None:
                         _bar_per_class(arr, X, title=f"{level_name} · {cname}", top_k=TOP_K)
                     else:
                         shap.summary_plot(arr, X, max_display=TOP_K, show=False)
-                        plt.title(f"{level_name} · {cname}")
-                        st.pyplot(plt.gcf()); plt.close()
+                        fig = plt.gcf()
+                        fig.set_size_inches(5.5*chart_scale, 4.5*chart_scale, forward=True)
+                        plt.title(f"{level_name} · {cname}", fontsize=max(10, int(12*chart_scale)), pad=8)
+                        plt.tight_layout(pad=0.9)
+                        _show_shap_fig_compact(fig)
+                        plt.close(fig)
 
-        cols_shap = st.columns(2)
+        # 两侧留白 + 中间留白，不让两张图把整行塞满。
+        shap_layout = st.columns([0.08, 1.0, 0.16, 1.0, 0.08], gap="small")
+        cols_shap = [shap_layout[1], shap_layout[3]]
         X_map = {"Level1": df_input_L1, "Level2": df_input_L2}
         for col, (mdl, nm) in zip(cols_shap, [(model_lvl1, "Level1"), (model_lvl2, "Level2")]):
             with col:
@@ -914,6 +932,3 @@ if uploaded_file is not None:
         st.exception(e)
 else:
     st.info("Please upload a data file to proceed.")
-
-
-
