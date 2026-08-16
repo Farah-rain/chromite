@@ -136,7 +136,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: fixed-stats-grid-v23")
+    st.caption("Build: six-charts-large-v24")
 
     
     def load_model_and_metadata():
@@ -764,11 +764,11 @@ if uploaded_file is not None:
 
 
         # ===== 统计图统一画布 / 字体 / 网页显示尺寸 =====
-        STATS_FIGSIZE = (4.2, 3.0)   # 四张图完全相同
+        STATS_FIGSIZE = (5.8, 4.3)   # 四张图完全相同
         STATS_DPI = 120
-        STATS_DISPLAY_WIDTH = 430    # 网页上四张图完全相同宽度
-        STATS_FONT = 9
-        STATS_TITLE_FONT = 11
+        STATS_DISPLAY_WIDTH = 560    # 网页上四张图完全相同宽度
+        STATS_FONT = 10
+        STATS_TITLE_FONT = 12
 
         def _stats_png_bytes(fig):
             buf = BytesIO()
@@ -801,13 +801,13 @@ if uploaded_file is not None:
             vals  = mean_abs[sel]
 
             # 紧凑版：保留 13 个特征，但不让图占满整个网页。
-            fig, ax = plt.subplots(figsize=(3.2*chart_scale, 2.5*chart_scale))
+            fig, ax = plt.subplots(figsize=(5.8*chart_scale, 4.3*chart_scale))
             ax.barh(np.arange(len(vals)), vals)
             ax.set_yticks(np.arange(len(vals)))
-            ax.set_yticklabels(feats, fontsize=8)
-            ax.tick_params(axis="x", labelsize=8)
-            ax.set_xlabel("mean |SHAP|", fontsize=8)
-            ax.set_title(title, fontsize=10, pad=6)
+            ax.set_yticklabels(feats, fontsize=10)
+            ax.tick_params(axis="x", labelsize=10)
+            ax.set_xlabel("mean |SHAP|", fontsize=10)
+            ax.set_title(title, fontsize=12, pad=8)
             fig.tight_layout(pad=0.9)
             _show_shap_fig_compact(fig)
             plt.close(fig)
@@ -867,23 +867,23 @@ if uploaded_file is not None:
                     else:
                         shap.summary_plot(arr, X, max_display=TOP_K, show=False)
                         fig = plt.gcf()
-                        fig.set_size_inches(3.6*chart_scale, 2.8*chart_scale, forward=True)
+                        fig.set_size_inches(5.8*chart_scale, 4.3*chart_scale, forward=True)
                         ax = plt.gca()
-                        ax.tick_params(axis="both", labelsize=8)
-                        ax.set_xlabel(ax.get_xlabel(), fontsize=8)
-                        ax.set_ylabel(ax.get_ylabel(), fontsize=8)
-                        plt.title(f"{level_name} · {cname}", fontsize=10, pad=6)
+                        ax.tick_params(axis="both", labelsize=10)
+                        ax.set_xlabel(ax.get_xlabel(), fontsize=10)
+                        ax.set_ylabel(ax.get_ylabel(), fontsize=10)
+                        plt.title(f"{level_name} · {cname}", fontsize=12, pad=8)
                         # SHAP may create a colorbar as a second axes; enlarge its text too.
                         if len(fig.axes) > 1:
                             for extra_ax in fig.axes[1:]:
-                                extra_ax.tick_params(labelsize=8)
-                                extra_ax.yaxis.label.set_size(8)
+                                extra_ax.tick_params(labelsize=10)
+                                extra_ax.yaxis.label.set_size(10)
                         plt.tight_layout(pad=0.9)
                         _show_shap_fig_compact(fig)
                         plt.close(fig)
 
         # 两侧留白 + 中间留白，不让两张图把整行塞满。
-        shap_layout = st.columns([1.45, 2.15, 1.8, 2.15, 1.45], gap="small")
+        shap_layout = st.columns([1.10, 2.70, 1.10, 2.70, 1.10], gap="small")
         cols_shap = [shap_layout[1], shap_layout[3]]
         X_map = {"Level1": df_input_L1, "Level2": df_input_L2}
         for col, (mdl, nm) in zip(cols_shap, [(model_lvl1, "Level1"), (model_lvl2, "Level2")]):
@@ -1014,7 +1014,7 @@ if uploaded_file is not None:
 
                 fig = plt.figure(figsize=STATS_FIGSIZE)
                 # 固定饼图绘图区；legend 放在同一固定画布内，不改变图片尺寸
-                ax = fig.add_axes([0.07, 0.16, 0.56, 0.72])
+                ax = fig.add_axes([0.08, 0.16, 0.54, 0.72])
                 wedges, texts, autotexts = ax.pie(
                     sizes, startangle=110, counterclock=False,
                     colors=colors, labels=None,
@@ -1042,7 +1042,7 @@ if uploaded_file is not None:
                 _show_fixed_stats_fig(fig, title)
                 plt.close(fig)
 
-        pie_layout = st.columns([1.15, 2.70, 1.30, 2.70, 1.15], gap="small")
+        pie_layout = st.columns([1.00, 2.85, 1.00, 2.85, 1.00], gap="small")
         cols_pie = [pie_layout[1], pie_layout[3]]
         _pie_full(cols_pie[0], df_pie_l1, "Level1 · class share", total_n=len(pred1_label))
         _pie_full(cols_pie[1], df_pie_l2, "Level2 · class share (Extraterrestrial only)", total_n=(N_L2 if N_L2 > 0 else 1))
@@ -1056,7 +1056,7 @@ if uploaded_file is not None:
                     st.info("No data"); return
                 fig = plt.figure(figsize=STATS_FIGSIZE)
                 # 与饼图使用同一个固定画布；柱图绘图区也固定
-                ax = fig.add_axes([0.15, 0.22, 0.78, 0.64])
+                ax = fig.add_axes([0.14, 0.20, 0.78, 0.66])
                 x = [_short_chart_label(v) for v in df["Class"].astype(str).tolist()]
                 y = df["count"].astype(int).tolist()
                 ax.bar(range(len(x)), y, edgecolor="black", color=[PALETTE[i % len(PALETTE)] for i in range(len(x))])
@@ -1074,7 +1074,7 @@ if uploaded_file is not None:
                 _show_fixed_stats_fig(fig, title)
                 plt.close(fig)
 
-        bar_layout = st.columns([1.15, 2.70, 1.30, 2.70, 1.15], gap="small")
+        bar_layout = st.columns([1.00, 2.85, 1.00, 2.85, 1.00], gap="small")
         cols_bar = [bar_layout[1], bar_layout[3]]
         _bar_from_df(cols_bar[0], df_pie_l1.sort_values(["count","Class"], ascending=[False,True]), "Level1 · frequency", total_n=len(pred1_label))
         _bar_from_df(cols_bar[1], df_pie_l2.sort_values(["count","Class"], ascending=[False,True]), "Level2 · frequency (Extraterrestrial only)", total_n=N_L2 if N_L2>0 else 1)
