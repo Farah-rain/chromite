@@ -11,12 +11,7 @@ from itertools import chain
 # -------------------- 页面配置 --------------------
 st.set_page_config(page_title="Chromite Provenance Classifier", layout="wide")
 def render_hero_banner():
-    hero_candidates = [
-        "铬铁矿溯源分类器_星际科学探索.png",
-        "chromite_space_banner.png",
-        "chromite_banner.png",
-    ]
-    hero_path = next((p for p in hero_candidates if os.path.exists(p)), None)
+    hero_path = "chromite_space_banner.png" if os.path.exists("chromite_space_banner.png") else None
 
     if hero_path:
         with open(hero_path, "rb") as f:
@@ -350,7 +345,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: hero-banner-v38")
+    st.caption("Build: english-banner-v39")
 
     
     def load_model_and_metadata():
