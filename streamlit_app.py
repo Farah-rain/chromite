@@ -136,7 +136,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: chart-shortlabels-table3dp-v21")
+    st.caption("Build: aligned-charts-v22")
 
     
     def load_model_and_metadata():
@@ -979,7 +979,7 @@ if uploaded_file is not None:
                 def _autopct(pct):
                     return f"{pct:.0f}%" if (pct/100.0) >= small_cut else ""
 
-                fig, ax = plt.subplots(figsize=(3.6*chart_scale, 2.8*chart_scale))
+                fig, ax = plt.subplots(figsize=(3.2*chart_scale, 2.5*chart_scale))
                 wedges, texts, autotexts = ax.pie(
                     sizes, startangle=110, counterclock=False,
                     colors=colors, labels=None,
@@ -992,7 +992,7 @@ if uploaded_file is not None:
                 legend_labels = [f"{_short_chart_label(lab)}, {_fmt_frac(sh)}" for lab, sh in zip(df_in["Class"], df_in["share"])]
                 ax.legend(
                     wedges, legend_labels, title="Class",
-                    loc="center left", bbox_to_anchor=(1.02, 0.5),
+                    loc="center left", bbox_to_anchor=(1.00, 0.5),
                     frameon=False, fontsize=8,
                     title_fontsize=8
                 )
@@ -1008,7 +1008,7 @@ if uploaded_file is not None:
                 )
                 plt.close(fig)
 
-        pie_layout = st.columns([1.45, 2.15, 1.8, 2.15, 1.45], gap="small")
+        pie_layout = st.columns([1.50, 2.10, 1.80, 2.10, 1.50], gap="small")
         cols_pie = [pie_layout[1], pie_layout[3]]
         _pie_full(cols_pie[0], df_pie_l1, "Level1 · class share", total_n=len(pred1_label))
         _pie_full(cols_pie[1], df_pie_l2, "Level2 · class share (Extraterrestrial only)", total_n=(N_L2 if N_L2 > 0 else 1))
@@ -1044,7 +1044,7 @@ if uploaded_file is not None:
                 )
                 plt.close(fig)
 
-        bar_layout = st.columns([1.45, 2.15, 1.8, 2.15, 1.45], gap="small")
+        bar_layout = st.columns([1.50, 2.10, 1.80, 2.10, 1.50], gap="small")
         cols_bar = [bar_layout[1], bar_layout[3]]
         _bar_from_df(cols_bar[0], df_pie_l1.sort_values(["count","Class"], ascending=[False,True]), "Level1 · frequency", total_n=len(pred1_label))
         _bar_from_df(cols_bar[1], df_pie_l2.sort_values(["count","Class"], ascending=[False,True]), "Level2 · frequency (Extraterrestrial only)", total_n=N_L2 if N_L2>0 else 1)
@@ -1142,3 +1142,4 @@ if uploaded_file is not None:
         st.exception(e)
 else:
     st.info("Please upload a data file to proceed.")
+   
