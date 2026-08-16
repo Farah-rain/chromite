@@ -1310,7 +1310,11 @@ if uploaded_file is not None:
             if df_l2_tbl.empty:
                 st.info("No Level2 (Extraterrestrial only) data")
             else:
-                render_big_scroll_table(df_l2_tbl, height=145, font_px=21)
+                # Level 2 usually contains more classes: show up to five data rows by default.
+                # Additional classes remain accessible with the table's internal scrollbar.
+                visible_rows_l2 = min(5, len(df_l2_tbl))
+                l2_table_height = 48 + visible_rows_l2 * 46
+                render_big_scroll_table(df_l2_tbl, height=l2_table_height, font_px=21)
 
         # ===================== 🪐 Classification distribution figures =====================
         st.subheader("🪐 Classification distribution figures")
