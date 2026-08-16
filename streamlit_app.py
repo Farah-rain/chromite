@@ -10,19 +10,58 @@ from itertools import chain
 
 # -------------------- 页面配置 --------------------
 st.set_page_config(page_title="Chromite Provenance Classifier", layout="wide")
-st.title("✨ Chromite Provenance Classifier")
-st.markdown(
-    """
-    <div class="hero-subtitle">
-        Machine-learning classification of chromite compositions for terrestrial–extraterrestrial provenance and extraterrestrial subclass attribution.
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+def render_hero_banner():
+    hero_candidates = [
+        "铬铁矿溯源分类器_星际科学探索.png",
+        "chromite_space_banner.png",
+        "chromite_banner.png",
+    ]
+    hero_path = next((p for p in hero_candidates if os.path.exists(p)), None)
+
+    if hero_path:
+        with open(hero_path, "rb") as f:
+            hero_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+        st.markdown(
+            f"""
+            <div class="hero-banner-wrap">
+                <img src="data:image/png;base64,{hero_b64}" class="hero-banner" alt="Chromite Provenance Classifier banner"/>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    else:
+        st.title("✨ Chromite Provenance Classifier")
+        st.markdown(
+            """
+            <div class="hero-subtitle">
+                Machine-learning classification of chromite compositions for terrestrial–extraterrestrial provenance and extraterrestrial subclass attribution.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
 # -------------------- 网页字体 --------------------
 st.markdown("""
 <style>
+
+/* ---------- hero banner ---------- */
+.hero-banner-wrap {
+    width: 100%;
+    margin: 6px 0 14px 0;
+}
+.hero-banner {
+    width: 100%;
+    display: block;
+    border-radius: 18px;
+    box-shadow: 0 8px 28px rgba(12, 24, 48, 0.22);
+}
+.hero-subtitle {
+    font-size: 21px;
+    color: #6b7280;
+    margin-top: -4px;
+    margin-bottom: 10px;
+}
 
 /* 普通网页控件：明显大一点 */
 .stMarkdown p,
@@ -211,6 +250,8 @@ div[data-testid="stExpander"] details[open] > summary {
 </style>
 """, unsafe_allow_html=True)
 
+render_hero_banner()
+
 # -------------------- 常量与映射（与训练一致） --------------------
 ABSTAIN_LABEL = "Unclassified"
 
@@ -309,7 +350,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: level1-pie-legend-fix-v37")
+    st.caption("Build: hero-banner-v38")
 
     
     def load_model_and_metadata():
