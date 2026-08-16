@@ -16,12 +16,6 @@ ABSTAIN_LABEL = "Unclassified"
 
 
 
-# Level3 父子约束
-valid_lvl3 = {
-    "OC": {"H", "L", "LL"},
-    "CC": {"CM-CO", "CR-clan", "CV"}
-}
-
 # 柔和调色板（饼图/柱状图通用）
 PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors))
 
@@ -35,7 +29,6 @@ with st.sidebar:
         def _load(p1, p2): return joblib.load(p1) if os.path.exists(p1) else joblib.load(p2)
         model_lvl1 = _load("models/model_level1.pkl", "model_level1.pkl")
         model_lvl2 = _load("models/model_level2.pkl", "model_level2.pkl")
-        model_lvl3 = _load("models/model_level3.pkl", "model_level3.pkl")
 
         feat_json = "models/feature_columns.json" if os.path.exists("models/feature_columns.json") else "feature_columns.json"
         if os.path.exists(feat_json):
@@ -46,10 +39,10 @@ with st.sidebar:
             if not features:
                 st.error("Feature columns not found (feature_columns.json or model.feature_name_).")
                 st.stop()
-        return model_lvl1, model_lvl2, model_lvl3, features
+        return model_lvl1, model_lvl2, features
 
     try:
-        model_lvl1, model_lvl2, model_lvl3, feature_list = load_model_and_metadata()
+        model_lvl1, model_lvl2, feature_list = load_model_and_metadata()
         st.success("Models and feature list loaded.")
         st.caption(f"Feature dimension: {len(feature_list)}")
     except Exception as e:
@@ -69,13 +62,9 @@ def load_calibrator_and_threshold(level_name: str):
 calib_L1, thr_L1 = load_calibrator_and_threshold("Level1")
 
 calib_L2, thr_L2 = load_calibrator_and_threshold("Level2")
-calib_L3, thr_L3 = load_calibrator_and_threshold("Level3")
-if thr_L3 is None:
-    thr_L3 = {}
 # ✅ NEW: 载入 KNNImputer（训练阶段保存的）
 imp_L1 = _load_joblib_pair("models/knn_imputer_Level1.joblib", "knn_imputer_Level1.joblib")
 imp_L2 = _load_joblib_pair("models/knn_imputer_Level2.joblib", "knn_imputer_Level2.joblib")
-imp_L3 = _load_joblib_pair("models/knn_imputer_Level3.joblib", "knn_imputer_Level3.joblib")
 def _load_imputer_cols(level_name: str):
     p1 = f"models/knn_imputer_{level_name}_columns.json"
     p2 = f"knn_imputer_{level_name}_columns.json"
@@ -141,8 +130,6 @@ def _apply_imputer_strict(dfX: pd.DataFrame, imp, level_name: str, fallback_cols
 # 载入 Tukey 区间（若存在）
 #q_low_L2  = _load_joblib_pair("models/q_low_Level2.joblib",  "q_low_Level2.joblib")
 #q_high_L2 = _load_joblib_pair("models/q_high_Level2.joblib", "q_high_Level2.joblib")
-#q_low_L3  = _load_joblib_pair("models/q_low_Level3.joblib",  "q_low_Level3.joblib")
-#q_high_L3 = _load_joblib_pair("models/q_high_Level3.joblib", "q_high_Level3.joblib")
 
 
 # -------------------- 概率校准 & 类阈值工具 --------------------
@@ -400,7 +387,6 @@ if uploaded_file is not None:
         # ✅ 严格对齐列顺序 + 填充缺失值（每个 Level 用自己的 imputer）
         df_input_L1 = _apply_imputer_strict(df_input, imp_L1, "Level1", fallback_cols=feature_list)
         df_input_L2 = _apply_imputer_strict(df_input, imp_L2, "Level2", fallback_cols=feature_list)
-        df_input_L3 = _apply_imputer_strict(df_input, imp_L3, "Level3", fallback_cols=feature_list)
 
 
         N = len(df_input)
@@ -457,67 +443,6 @@ if uploaded_file is not None:
             pred2_label[empty2.values] = ABSTAIN_LABEL
             p2unk[empty2.values] = 1.0
 
-        # ========= Level 3（父子约束）=========
-        _pred2_norm = pd.Series(pred2_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
-        mask_lvl3 = _pred2_norm.isin(["oc", "cc"]).to_numpy()
-        routed_to_L3 = bool(mask_lvl3.any())
-
-        C3 = len(model_lvl3.classes_)
-        classes3 = model_lvl3.classes_.astype(str)
-        prob3_raw = np.full((N, C3), np.nan)
-        prob3_post = np.zeros((N, C3))
-        pred3_label = np.full(N, "", dtype=object)
-        p3max = np.full(N, np.nan)
-        p3unk = np.full(N, np.nan)
-
-        if routed_to_L3:
-            all_pr3 = model_lvl3.predict_proba(df_input_L3[mask_lvl3])
-
-            # ===== RAW 概率（不校准）=====
-            all_pr3_use = all_pr3
-
-            idxs = np.where(mask_lvl3)[0]
-            prob3_raw[mask_lvl3] = all_pr3_use
-
-            for row_i, i_global in enumerate(idxs):
-                parent = str(pred2_label[i_global]).strip()
-                allowed = valid_lvl3.get(parent, set())
-
-                # 这行必须在 for 里面，否则 row_i 不存在
-                p = all_pr3_use[row_i].copy()
-
-                # 父子约束（保留）
-                if allowed:
-                    mask_allowed = np.isin(classes3, list(allowed))
-                    p = p * mask_allowed
-                    s = p.sum()
-                    if s > 0:
-                        p = p / s
-
-                # 阈值/拒识（仍保留）
-                if thr_L3 is not None:
-                    pred_tmp, pmax_tmp = predict_with_classwise_thresholds(
-                        proba_cal=p.reshape(1, -1),
-                        classes=classes3,
-                        thr_dict=thr_L3,
-                        unknown_label=ABSTAIN_LABEL,
-                    )
-                    pred3_label[i_global] = pred_tmp[0]
-                    p3max[i_global] = float(pmax_tmp[0])
-                else:
-                    j = int(np.argmax(p))
-                    pmax_val = float(p[j])
-                    pred3_label[i_global] = classes3[j] if pmax_val >= 0.5 else ABSTAIN_LABEL
-                    p3max[i_global] = pmax_val
-
-                p3unk[i_global] = 1.0 - p3max[i_global]
-                prob3_post[i_global] = p
-
-            empty3 = (pd.Series(pred3_label, dtype="object") == "")
-            if empty3.any():
-                pred3_label[empty3.values] = ABSTAIN_LABEL
-                p3unk[empty3.values] = 1.0
-
         # -------------------- 结果表 --------------------
         df_display = df_uploaded.copy().reset_index(drop=True)
         df_display.insert(0, "Index", df_display.index + 1)
@@ -529,10 +454,6 @@ if uploaded_file is not None:
         for i, c in enumerate(classes2):
             df_display[f"P_Level2_{c}"] = np.round(prob2_full[:, i].astype(float), 3)
 
-        if routed_to_L3:
-            for i, c in enumerate(classes3):
-                df_display[f"P_Level3_{c}"] = np.round(prob3_post[:, i].astype(float), 3)
-                
 
       
       
@@ -551,21 +472,12 @@ if uploaded_file is not None:
             p_max=p2max, p_unknown=p2unk, fill_unknown_for_empty=True
         )
 
-        if routed_to_L3:
-            l3_label, l3_share, l3_mean = level_group_stats(
-                labels=pred3_label, classes=classes3, prob_by_class=prob3_post,
-                p_max=p3max, p_unknown=p3unk, fill_unknown_for_empty=True
-            )
-
         df_display["L1_TopShare"]    = l1_share
         df_display["L1_TopMeanProb"] = round(l1_mean, 3)
         df_display["L2_TopShare"]    = l2_share
         df_display["L2_TopMeanProb"] = round(l2_mean, 3)
-        if routed_to_L3:
-            df_display["L3_TopShare"]    = l3_share
-            df_display["L3_TopMeanProb"] = round(l3_mean, 3)
 
-        # -------------------- SHAP：tabs 横向滚动 + 三列并排 --------------------
+        # -------------------- SHAP：tabs 横向滚动 + 两列并排 --------------------
         st.subheader("📈 SHAP Interpretability")
         st.markdown("""
         <style>
@@ -652,14 +564,14 @@ if uploaded_file is not None:
                         plt.title(f"{level_name} · {cname}")
                         st.pyplot(plt.gcf()); plt.close()
 
-        cols_shap = st.columns(3)
-        X_map = {"Level1": df_input_L1, "Level2": df_input_L2, "Level3": df_input_L3}
-        for col, (mdl, nm) in zip(cols_shap, [(model_lvl1, "Level1"), (model_lvl2, "Level2"), (model_lvl3, "Level3")]):
+        cols_shap = st.columns(2)
+        X_map = {"Level1": df_input_L1, "Level2": df_input_L2}
+        for col, (mdl, nm) in zip(cols_shap, [(model_lvl1, "Level1"), (model_lvl2, "Level2")]):
             with col:
                 st.markdown(f"#### 🔍 {nm} (per class)")
                 _render_per_class(mdl, nm, X_map[nm])
 
-        # >>> NEW: 预计算 summary（含 L3 拆分）
+        # >>> NEW: 预计算 summary（Level1 / Level2）
         # =======================================================================
         def _vc_df_early(labels: np.ndarray) -> pd.DataFrame:
             s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
@@ -671,31 +583,6 @@ if uploaded_file is not None:
         # L1 / L2
         df_l1 = _vc_df_early(pred1_label).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
         df_l2 = _vc_df_early(pred2_label).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
-
-        # L3 拆分：根据父级 (pred2_label) 为 OC / CC 的两套
-        parent_norm = pd.Series(pred2_label, dtype="object").astype("string").str.strip().str.upper().fillna("")
-        mask_OC = (parent_norm == "OC")
-        mask_CC = (parent_norm == "CC")
-
-        def _vc_l3_subset(mask_parent) -> pd.DataFrame:
-            if not (routed_to_L3 and mask_parent.any()):
-                return pd.DataFrame(columns=["Class","count","share"])
-            return _vc_df_early(pred3_label[mask_parent]).sort_values(
-                ["count","Class"], ascending=[False,True], ignore_index=True
-            )
-
-        df_l3_oc = _vc_l3_subset(mask_OC)
-        df_l3_cc = _vc_l3_subset(mask_CC)
-
-        df_l3 = pd.concat([df_l3_oc, df_l3_cc], ignore_index=True) \
-                .groupby("Class", as_index=False).sum()
-
-        if not df_l3.empty:
-            df_l3["count"] = pd.to_numeric(df_l3["count"], errors="coerce").fillna(0)
-            total = int(df_l3["count"].sum()) or 1
-            denom = float(total)
-            df_l3["share"] = (df_l3["count"].astype(float) / denom).round(3)
-            df_l3 = df_l3.sort_values(["count", "Class"], ascending=[False, True], ignore_index=True)
 
         # ===================== 📋 Classification summary (tables)  =====================
         st.subheader("📋 Classification summary (tables)")
@@ -712,28 +599,18 @@ if uploaded_file is not None:
             df["Share"] = (df["Count"] / denom).round(3)
             return df[["Class", "Count", "Share"]]
 
-        # 计算 L2 / L3 的有效子集
+        # 计算 Level2 的有效子集
         pred1_norm = pd.Series(pred1_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
         mask_L2  = (pred1_norm == "extraterrestrial").to_numpy()
         N_L2     = int(mask_L2.sum())
 
-        pred2_norm = pd.Series(pred2_label, dtype="object").astype("string").str.strip().fillna("")
-        mask_L3_OC = (pred2_norm == "OC").to_numpy()
-        mask_L3_CC = (pred2_norm == "CC").to_numpy()
-        N_L3_OC    = int(mask_L3_OC.sum())
-        N_L3_CC    = int(mask_L3_CC.sum())
-
         df_l1_tbl = _make_summary_from_labels(pred1_label)
         df_l2_tbl = _make_summary_from_labels(pred2_label[mask_L2], total_n=N_L2)
-        df_l3_oc_tbl = _make_summary_from_labels(pred3_label[mask_L3_OC], total_n=N_L3_OC) if routed_to_L3 else pd.DataFrame(columns=["Class","Count","Share"])
-        df_l3_cc_tbl = _make_summary_from_labels(pred3_label[mask_L3_CC], total_n=N_L3_CC) if routed_to_L3 else pd.DataFrame(columns=["Class","Count","Share"])
 
         df_l1_tbl.insert(0, "Level", "Level1")
         df_l2_tbl.insert(0, "Level", "Level2")
-        df_l3_oc_tbl.insert(0, "Level", "Level3-OC")
-        df_l3_cc_tbl.insert(0, "Level", "Level3-CC")
 
-        cols_tbl = st.columns(3, gap="large")
+        cols_tbl = st.columns(2, gap="large")
 
         with cols_tbl[0]:
             if df_l1_tbl.empty:
@@ -747,17 +624,6 @@ if uploaded_file is not None:
             else:
                 st.dataframe(df_l2_tbl, use_container_width=True)
 
-        with cols_tbl[2]:
-            if df_l3_oc_tbl.empty:
-                st.info("No Level3-OC data")
-            else:
-                st.dataframe(df_l3_oc_tbl, use_container_width=True)
-
-            if df_l3_cc_tbl.empty:
-                st.info("No Level3-CC data")
-            else:
-                st.dataframe(df_l3_cc_tbl, use_container_width=True)
-
         # ===================== 🪐 Class share (pie)  =====================
         st.subheader("🪐 Class share (pie)")
 
@@ -770,10 +636,8 @@ if uploaded_file is not None:
             df["share"] = (df["count"] / denom).round(3)
             return df[["Class", "count", "share"]]
 
-        df_pie_l1   = _vc_df(pred1_label)
-        df_pie_l2   = _vc_df(pred2_label[mask_L2],    total_n=N_L2)    if N_L2    > 0 else pd.DataFrame(columns=["Class","count","share"])
-        df_pie_l3oc = _vc_df(pred3_label[mask_L3_OC], total_n=N_L3_OC) if N_L3_OC > 0 else pd.DataFrame(columns=["Class","count","share"])
-        df_pie_l3cc = _vc_df(pred3_label[mask_L3_CC], total_n=N_L3_CC) if N_L3_CC > 0 else pd.DataFrame(columns=["Class","count","share"])
+        df_pie_l1 = _vc_df(pred1_label)
+        df_pie_l2 = _vc_df(pred2_label[mask_L2], total_n=N_L2) if N_L2 > 0 else pd.DataFrame(columns=["Class","count","share"])
 
         def _fmt_frac(sh: float) -> str:
             if sh >= 0.10:
@@ -855,11 +719,9 @@ if uploaded_file is not None:
                 )
                 plt.close(fig)
 
-        cols_pie = st.columns(4, gap="large")
-        _pie_full(cols_pie[0], df_pie_l1,   "Level1 · class share", total_n=len(pred1_label))
-        _pie_full(cols_pie[1], df_pie_l2,   "Level2 · class share (Extraterrestrial only)", total_n=(N_L2 if N_L2 > 0 else 1))
-        _pie_full(cols_pie[2], df_pie_l3oc, "Level3-OC · class share", total_n=(N_L3_OC if N_L3_OC > 0 else 1))
-        _pie_full(cols_pie[3], df_pie_l3cc, "Level3-CC · class share", total_n=(N_L3_CC if N_L3_CC > 0 else 1))
+        cols_pie = st.columns(2, gap="large")
+        _pie_full(cols_pie[0], df_pie_l1, "Level1 · class share", total_n=len(pred1_label))
+        _pie_full(cols_pie[1], df_pie_l2, "Level2 · class share (Extraterrestrial only)", total_n=(N_L2 if N_L2 > 0 else 1))
 
         # ===================== ☄️ Class frequency (bars)  =====================
         st.subheader("☄️ Class frequency (bars)")
@@ -892,26 +754,21 @@ if uploaded_file is not None:
                 )
                 plt.close(fig)
 
-        cols_bar = st.columns(4, gap="large")
-        _bar_from_df(cols_bar[0], df_pie_l1.sort_values(["count","Class"], ascending=[False,True]),   "Level1 · frequency", total_n=len(pred1_label))
-        _bar_from_df(cols_bar[1], df_pie_l2.sort_values(["count","Class"], ascending=[False,True]),   "Level2 · frequency (Extraterrestrial only)", total_n=N_L2 if N_L2>0 else 1)
-        _bar_from_df(cols_bar[2], df_pie_l3oc.sort_values(["count","Class"], ascending=[False,True]), "Level3-OC · frequency", total_n=N_L3_OC if N_L3_OC>0 else 1)
-        _bar_from_df(cols_bar[3], df_pie_l3cc.sort_values(["count","Class"], ascending=[False,True]), "Level3-CC · frequency", total_n=N_L3_CC if N_L3_CC>0 else 1)
+        cols_bar = st.columns(2, gap="large")
+        _bar_from_df(cols_bar[0], df_pie_l1.sort_values(["count","Class"], ascending=[False,True]), "Level1 · frequency", total_n=len(pred1_label))
+        _bar_from_df(cols_bar[1], df_pie_l2.sort_values(["count","Class"], ascending=[False,True]), "Level2 · frequency (Extraterrestrial only)", total_n=N_L2 if N_L2>0 else 1)
 
         # -------------------- ✅ 样品一致性 + 组结果 --------------------
         st.subheader("🧪 Specimen Confirmation & Group Result")
         same_specimen = st.checkbox("I confirm all uploaded rows originate from the same physical specimen.")
         if same_specimen:
-            depth = {"Level1": 1, "Level2": 2, "Level3": 3}
+            depth = {"Level1": 1, "Level2": 2}
             cands = [
                 ("Level1", {"label": l1_label, "share": int(l1_share.split('/')[0]) / N, "prob": l1_mean,
                             "agree": int(l1_share.split('/')[0]), "total": N}),
                 ("Level2", {"label": l2_label, "share": int(l2_share.split('/')[0]) / N, "prob": l2_mean,
                             "agree": int(l2_share.split('/')[0]), "total": N}),
             ]
-            if routed_to_L3:
-                cands.append(("Level3", {"label": l3_label, "share": int(l3_share.split('/')[0]) / N, "prob": l3_mean,
-                                         "agree": int(l3_share.split('/')[0]), "total": N}))
             final_level, final = sorted(cands, key=lambda t: (t[1]["share"], t[1]["prob"], depth[t[0]]), reverse=True)[0]
             st.success(
                 f"Final group result → **{final_level}: {final['label']}**  |  "
@@ -922,8 +779,6 @@ if uploaded_file is not None:
                 {"Level": "Level1", "Top class": l1_label, "Share": l1_share, "Mean prob": round(l1_mean, 3)},
                 {"Level": "Level2", "Top class": l2_label, "Share": l2_share, "Mean prob": round(l2_mean, 3)},
             ]
-            if routed_to_L3:
-                rows.append({"Level": "Level3", "Top class": l3_label, "Share": l3_share, "Mean prob": round(l3_mean, 3)})
             st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
         # -------------------- 训练池（在直方图后，下载前） --------------------
@@ -932,7 +787,6 @@ if uploaded_file is not None:
             df_save = df_input.copy()
             df_save["Level1"] = pred1_label
             df_save["Level2"] = pred2_label
-            if routed_to_L3: df_save["Level3"] = pred3_label
 
             local_path = "training_pool.csv"
             header_needed = not os.path.exists(local_path)
@@ -974,22 +828,11 @@ if uploaded_file is not None:
             # 预测页（包含 OOD 列）
             df_display.to_excel(writer, index=False, sheet_name='Prediction')
 
-            # 按你原有逻辑：写 Summary_L1 / Summary_L2 / Summary_L3（合并版，保持兼容）
+            # 导出 Level1 / Level2 汇总
             df_l1_export = df_l1.copy(); df_l1_export.insert(0, "Level", "Level1")
             df_l2_export = df_l2.copy(); df_l2_export.insert(0, "Level", "Level2")
             df_l1_export.to_excel(writer, index=False, sheet_name='Summary_L1')
             df_l2_export.to_excel(writer, index=False, sheet_name='Summary_L2')
-            if not df_l3.empty:
-                df_l3_export = df_l3.copy(); df_l3_export.insert(0, "Level", "Level3")
-                df_l3_export.to_excel(writer, index=False, sheet_name='Summary_L3')
-
-            # 额外导出拆分的 L3
-            if not df_l3_oc.empty:
-                tmp = df_l3_oc.copy(); tmp.insert(0, "Level", "Level3-OC")
-                tmp.to_excel(writer, index=False, sheet_name='Summary_L3_OC')
-            if not df_l3_cc.empty:
-                tmp = df_l3_cc.copy(); tmp.insert(0, "Level", "Level3-CC")
-                tmp.to_excel(writer, index=False, sheet_name='Summary_L3_CC')
 
         st.download_button(
             label="📥 Download Predictions (Excel)",
