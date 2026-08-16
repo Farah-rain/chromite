@@ -11,6 +11,69 @@ from itertools import chain
 st.set_page_config(page_title="Chromite Extraterrestrial Origin Classifier", layout="wide")
 st.title("✨ Chromite Extraterrestrial Origin Classifier")
 
+# -------------------- 全局网页字体（上传提示文字除外） --------------------
+st.markdown("""
+<style>
+/* 主要页面标题/分区标题 */
+h1 { font-size: 34px !important; }
+h2 { font-size: 27px !important; }
+h3 { font-size: 23px !important; }
+h4 { font-size: 20px !important; }
+
+/* 普通网页文字、caption、checkbox、按钮等整体放大 */
+.stMarkdown p,
+[data-testid="stCaptionContainer"],
+[data-testid="stCheckbox"] label,
+.stButton button,
+.stDownloadButton button {
+    font-size: 16px !important;
+}
+
+/* Predictions / summary 等 dataframe:
+   数据与表头统一为 10px，与图内 feature/tick 字号一致 */
+[data-testid="stDataFrame"] {
+    font-size: 10px !important;
+}
+[data-testid="stDataFrame"] div,
+[data-testid="stDataFrame"] span,
+[data-testid="stDataFrame"] p,
+[data-testid="stDataFrame"] th,
+[data-testid="stDataFrame"] td {
+    font-size: 10px !important;
+}
+
+/* SHAP tab 及 radio 控件 */
+.stTabs [data-baseweb="tab"] {
+    font-size: 17px !important;
+    padding: 8px 14px !important;
+}
+.stRadio label,
+.stRadio [role="radiogroup"] label p {
+    font-size: 17px !important;
+}
+
+/* file uploader 内部按钮/文件名稍大 */
+[data-testid="stFileUploader"] button,
+[data-testid="stFileUploader"] small,
+[data-testid="stFileUploader"] span {
+    font-size: 15px !important;
+}
+
+/* 但上传框上方原始提示文字保持原大小，不跟着全局放大 */
+[data-testid="stFileUploader"] > label,
+[data-testid="stFileUploader"] > label p {
+    font-size: 14px !important;
+}
+
+/* 侧栏常用文字略放大 */
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] p {
+    font-size: 15px !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 # -------------------- 常量与映射（与训练一致） --------------------
 ABSTAIN_LABEL = "Unclassified"
 
@@ -76,7 +139,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: two-level-full-labels-v11")
+    st.caption("Build: two-level-full-labels-v12")
 
     
     def load_model_and_metadata():
@@ -539,12 +602,12 @@ if uploaded_file is not None:
             overflow-x:auto!important;overflow-y:hidden;white-space:nowrap;
             scrollbar-width:thin;-ms-overflow-style:auto;
         }
-        .stTabs [data-baseweb="tab"]{white-space:nowrap;padding:8px 13px;margin:0 3px;font-size:16px!important;}
+        .stTabs [data-baseweb="tab"]{white-space:nowrap;padding:8px 14px;margin:0 3px;font-size:17px!important;}
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar{ height:8px; }
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb{ background:rgba(0,0,0,.25); border-radius:8px; }
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-track{ background:rgba(0,0,0,.06); border-radius:8px; }
-        .stRadio label {font-size:20px!important;}
-        .stRadio [role="radiogroup"] label p {font-size:16px!important;}
+        .stRadio label {font-size:17px!important;}
+        .stRadio [role="radiogroup"] label p {font-size:17px!important;}
         div[data-testid="stMarkdownContainer"] h4 {
             font-size:20px!important;
             margin-bottom:0.5rem!important;
@@ -553,7 +616,7 @@ if uploaded_file is not None:
         """, unsafe_allow_html=True)
 
         TOP_K = 13
-        st.markdown("<div style='font-size:20px;font-weight:500;margin-bottom:2px;'>Per-class SHAP view</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:17px;font-weight:500;margin-bottom:2px;'>Per-class SHAP view</div>", unsafe_allow_html=True)
         chart_kind = st.radio(
             "Per-class SHAP view",
             ["Bar (mean |SHAP|)", "Beeswarm"],
@@ -587,10 +650,10 @@ if uploaded_file is not None:
             fig, ax = plt.subplots(figsize=(4.6*chart_scale, 3.8*chart_scale))
             ax.barh(np.arange(len(vals)), vals)
             ax.set_yticks(np.arange(len(vals)))
-            ax.set_yticklabels(feats, fontsize=9)
-            ax.tick_params(axis="x", labelsize=8)
-            ax.set_xlabel("mean |SHAP|", fontsize=9)
-            ax.set_title(title, fontsize=11, pad=7)
+            ax.set_yticklabels(feats, fontsize=10)
+            ax.tick_params(axis="x", labelsize=10)
+            ax.set_xlabel("mean |SHAP|", fontsize=10)
+            ax.set_title(title, fontsize=13, pad=8)
             fig.tight_layout(pad=0.9)
             _show_shap_fig_compact(fig)
             plt.close(fig)
@@ -652,15 +715,15 @@ if uploaded_file is not None:
                         fig = plt.gcf()
                         fig.set_size_inches(4.6*chart_scale, 3.8*chart_scale, forward=True)
                         ax = plt.gca()
-                        ax.tick_params(axis="both", labelsize=9)
-                        ax.set_xlabel(ax.get_xlabel(), fontsize=9)
-                        ax.set_ylabel(ax.get_ylabel(), fontsize=9)
-                        plt.title(f"{level_name} · {cname}", fontsize=11, pad=7)
+                        ax.tick_params(axis="both", labelsize=10)
+                        ax.set_xlabel(ax.get_xlabel(), fontsize=10)
+                        ax.set_ylabel(ax.get_ylabel(), fontsize=10)
+                        plt.title(f"{level_name} · {cname}", fontsize=13, pad=8)
                         # SHAP may create a colorbar as a second axes; enlarge its text too.
                         if len(fig.axes) > 1:
                             for extra_ax in fig.axes[1:]:
-                                extra_ax.tick_params(labelsize=8)
-                                extra_ax.yaxis.label.set_size(9)
+                                extra_ax.tick_params(labelsize=9)
+                                extra_ax.yaxis.label.set_size(10)
                         plt.tight_layout(pad=0.9)
                         _show_shap_fig_compact(fig)
                         plt.close(fig)
