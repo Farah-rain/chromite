@@ -284,9 +284,42 @@ div[data-testid="stExpander"] details[open] > summary {
     border-bottom: 1px solid #d4e4f5 !important;
 }
 
-/* Streamlit 1.60 uploader button: remove the new small upload glyph for a cleaner research UI. */
+/* ---------- file uploader: keep native controls, enlarge them, and preserve the remove-file button ---------- */
+div[data-testid="stFileUploader"] {
+    width: 100% !important;
+}
+
+/* Main upload/drop-zone container */
+div[data-testid="stFileUploader"] section {
+    min-height: 76px !important;
+    padding: 10px 14px !important;
+    border-radius: 8px !important;
+}
+
+/* Upload/Browse button: restore the larger, easier-to-read appearance */
+div[data-testid="stFileUploader"] button {
+    min-height: 44px !important;
+    padding: 8px 15px !important;
+}
+
+div[data-testid="stFileUploader"] button,
+div[data-testid="stFileUploader"] button p,
+div[data-testid="stFileUploader"] button span {
+    font-size: 20px !important;
+    line-height: 1.2 !important;
+}
+
+/* File-type / size hint */
+div[data-testid="stFileUploader"] small,
+div[data-testid="stFileUploader"] section > div > span {
+    font-size: 19px !important;
+}
+
+/* IMPORTANT: do not hide uploader SVGs. The X/remove-file control is an SVG button. */
 div[data-testid="stFileUploader"] button svg {
-    display: none !important;
+    display: block !important;
+    width: 20px !important;
+    height: 20px !important;
 }
 .footer-note {
     color: #8a93a0;
@@ -409,7 +442,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: staged-upload-v41")
+    st.caption("Build: auto-upload-polished-v42")
 
     
     @st.cache_resource
@@ -927,21 +960,9 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    # Stage 1: confirm that Streamlit has actually received the file before any model/SHAP work starts.
-    file_signature = f"{uploaded_file.name}:{getattr(uploaded_file, 'size', 0)}"
-    if st.session_state.get("active_upload_signature") != file_signature:
-        st.session_state["active_upload_signature"] = file_signature
-        st.session_state["classification_requested"] = False
-
+    # Process immediately after a file is selected; no extra "Run classification" click is required.
     file_size_kb = float(getattr(uploaded_file, "size", 0)) / 1024.0
     st.success(f"✅ File uploaded successfully: {uploaded_file.name} ({file_size_kb:.1f} KB)")
-
-    if st.button("▶ Run classification", type="primary", key="run_classification_button"):
-        st.session_state["classification_requested"] = True
-
-    if not st.session_state.get("classification_requested", False):
-        st.info("The file has been received. Click **Run classification** to start preprocessing, prediction, and SHAP analysis.")
-        st.stop()
 
     try:
         df_uploaded = (pd.read_csv(uploaded_file) if uploaded_file.name.lower().endswith(".csv")
