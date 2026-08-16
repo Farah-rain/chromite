@@ -284,42 +284,126 @@ div[data-testid="stExpander"] details[open] > summary {
     border-bottom: 1px solid #d4e4f5 !important;
 }
 
-/* ---------- file uploader: keep native controls, enlarge them, and preserve the remove-file button ---------- */
-div[data-testid="stFileUploader"] {
+/* ---------- file uploader: classic wide drag-and-drop appearance ---------- */
+/* Only style the main chromite uploader; preserve Streamlit's native upload/remove behavior. */
+.st-key-chromite_data_uploader {
     width: 100% !important;
 }
 
-/* Main upload/drop-zone container */
-div[data-testid="stFileUploader"] section {
-    min-height: 76px !important;
-    padding: 10px 14px !important;
-    border-radius: 8px !important;
+.st-key-chromite_data_uploader div[data-testid="stFileUploader"] section {
+    position: relative !important;
+    width: 100% !important;
+    min-height: 82px !important;
+    padding: 12px 14px 12px 52px !important;
+    border-radius: 7px !important;
+    border: 1px solid #e4e8ee !important;
+    background: #f1f3f6 !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    overflow: visible !important;
 }
 
-/* Upload/Browse button: restore the larger, easier-to-read appearance */
-div[data-testid="stFileUploader"] button {
-    min-height: 44px !important;
-    padding: 8px 15px !important;
+/* Re-create the old left-side cloud icon. */
+.st-key-chromite_data_uploader div[data-testid="stFileUploader"] section::before {
+    content: "☁" !important;
+    position: absolute !important;
+    left: 17px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    color: #91a9c4 !important;
+    font-size: 30px !important;
+    font-family: Arial, sans-serif !important;
+    line-height: 1 !important;
+    pointer-events: none !important;
 }
 
-div[data-testid="stFileUploader"] button,
-div[data-testid="stFileUploader"] button p,
-div[data-testid="stFileUploader"] button span {
-    font-size: 20px !important;
+/* Old-style two-line instructions on the left. */
+.st-key-chromite_data_uploader div[data-testid="stFileUploader"] section::after {
+    content: "Drag and drop file here\\A Limit 200MB per file • XLSX, CSV" !important;
+    white-space: pre !important;
+    position: absolute !important;
+    left: 52px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    color: #48566a !important;
+    font-family: Arial, sans-serif !important;
+    font-size: 19px !important;
+    font-weight: 500 !important;
+    line-height: 1.55 !important;
+    pointer-events: none !important;
+}
+
+/* Hide the compact Streamlit helper text so the old-style copy above is the only text shown. */
+.st-key-chromite_data_uploader div[data-testid="stFileUploader"] section > div:not([data-testid="stFileUploaderFile"]) {
+    color: transparent !important;
+}
+.st-key-chromite_data_uploader div[data-testid="stFileUploader"] section small,
+.st-key-chromite_data_uploader div[data-testid="stFileUploader"] section > div > span {
+    visibility: hidden !important;
+}
+
+/* Turn the new compact Upload button into the old Browse files button on the far right. */
+.st-key-chromite_data_uploader div[data-testid="stFileUploader"] section button {
+    position: relative !important;
+    z-index: 5 !important;
+    margin-left: auto !important;
+    min-width: 116px !important;
+    min-height: 38px !important;
+    padding: 6px 14px !important;
+    border-radius: 6px !important;
+    background: #ffffff !important;
+    border: 1px solid #d7dce3 !important;
+    box-shadow: none !important;
+    font-size: 0 !important;
+    color: transparent !important;
+}
+
+.st-key-chromite_data_uploader div[data-testid="stFileUploader"] section button::after {
+    content: "Browse files" !important;
+    font-family: Arial, sans-serif !important;
+    font-size: 19px !important;
+    font-weight: 400 !important;
+    color: #2f3b4a !important;
     line-height: 1.2 !important;
 }
 
-/* File-type / size hint */
-div[data-testid="stFileUploader"] small,
-div[data-testid="stFileUploader"] section > div > span {
-    font-size: 19px !important;
+/* Hide only the icon inside the Browse-files button; do NOT hide the remove-file X below. */
+.st-key-chromite_data_uploader div[data-testid="stFileUploader"] section button svg {
+    display: none !important;
 }
 
-/* IMPORTANT: do not hide uploader SVGs. The X/remove-file control is an SVG button. */
-div[data-testid="stFileUploader"] button svg {
+/* Uploaded-file row: keep Streamlit native controls and make the remove X clearly visible. */
+.st-key-chromite_data_uploader div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] {
+    font-size: 18px !important;
+}
+.st-key-chromite_data_uploader div[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] button svg {
     display: block !important;
     width: 20px !important;
     height: 20px !important;
+}
+
+@media (max-width: 900px) {
+    .st-key-chromite_data_uploader div[data-testid="stFileUploader"] section {
+        min-height: 78px !important;
+        padding-left: 44px !important;
+    }
+    .st-key-chromite_data_uploader div[data-testid="stFileUploader"] section::before {
+        left: 13px !important;
+        font-size: 25px !important;
+    }
+    .st-key-chromite_data_uploader div[data-testid="stFileUploader"] section::after {
+        left: 44px !important;
+        font-size: 15px !important;
+    }
+    .st-key-chromite_data_uploader div[data-testid="stFileUploader"] section button {
+        min-width: 98px !important;
+        min-height: 36px !important;
+    }
+    .st-key-chromite_data_uploader div[data-testid="stFileUploader"] section button::after {
+        font-size: 15px !important;
+    }
 }
 .footer-note {
     color: #8a93a0;
