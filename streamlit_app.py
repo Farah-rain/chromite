@@ -113,7 +113,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: big-tables-small-plots-v14")
+    st.caption("Build: big-tables-small-plots-v15")
 
     
     def load_model_and_metadata():
@@ -291,7 +291,7 @@ def _save_fig_as_png_bytes(fig, dpi=220):
     return buf.getvalue()
 
 def render_big_scroll_table(df: pd.DataFrame, height: int = 430, font_px: int = 18):
-    """Render a horizontally/vertically scrollable HTML table with a guaranteed font size."""
+    """Render a horizontally/vertically scrollable HTML table with guaranteed font size."""
     if df is None or df.empty:
         st.info("No data")
         return
@@ -303,48 +303,50 @@ def render_big_scroll_table(df: pd.DataFrame, height: int = 430, font_px: int = 
         classes="big-scroll-table"
     )
 
+    css = f"""
+    <style>
+    .big-table-wrap {{
+        width: 100%;
+        max-height: {height}px;
+        overflow: auto;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        background: white;
+    }}
+
+    .big-table-wrap table.big-scroll-table {{
+        border-collapse: collapse;
+        width: max-content;
+        min-width: 100%;
+        font-size: {font_px}px !important;
+        line-height: 1.35;
+    }}
+
+    .big-table-wrap table.big-scroll-table th {{
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #f6f7f9;
+        font-size: {font_px}px !important;
+        font-weight: 600;
+        white-space: nowrap;
+        padding: 7px 10px;
+        border-bottom: 1px solid #d9dde3;
+        border-right: 1px solid #eceff3;
+    }}
+
+    .big-table-wrap table.big-scroll-table td {{
+        font-size: {font_px}px !important;
+        white-space: nowrap;
+        padding: 7px 10px;
+        border-bottom: 1px solid #eceff3;
+        border-right: 1px solid #f1f3f5;
+    }}
+    </style>
+    """
+
     st.markdown(
-        f"""
-        <style>
-        .big-table-wrap {
-            width: 100%;
-            max-height: {height}px;
-            overflow: auto;
-            border: 1px solid #e5e7eb;
-            border-radius: 6px;
-            background: white;
-        }
-        .big-table-wrap table.big-scroll-table {
-            border-collapse: collapse;
-            width: max-content;
-            min-width: 100%;
-            font-size: {font_px}px !important;
-            line-height: 1.35;
-        }
-        .big-table-wrap table.big-scroll-table th {
-            position: sticky;
-            top: 0;
-            z-index: 2;
-            background: #f6f7f9;
-            font-size: {font_px}px !important;
-            font-weight: 600;
-            white-space: nowrap;
-            padding: 7px 10px;
-            border-bottom: 1px solid #d9dde3;
-            border-right: 1px solid #eceff3;
-        }
-        .big-table-wrap table.big-scroll-table td {
-            font-size: {font_px}px !important;
-            white-space: nowrap;
-            padding: 7px 10px;
-            border-bottom: 1px solid #eceff3;
-            border-right: 1px solid #f1f3f5;
-        }
-        </style>
-        <div class="big-table-wrap">
-            {html}
-        </div>
-        """,
+        css + '<div class="big-table-wrap">' + html + '</div>',
         unsafe_allow_html=True
     )
 
