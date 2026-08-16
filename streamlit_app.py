@@ -11,6 +11,19 @@ from itertools import chain
 # -------------------- 页面配置 --------------------
 st.set_page_config(page_title="Chromite Extraterrestrial Origin Classifier", layout="wide")
 st.title("✨ Chromite Extraterrestrial Origin Classifier")
+st.markdown(
+    """
+    <div class="hero-subtitle">
+        Machine-learning classification of chromite compositions for terrestrial–extraterrestrial provenance assessment.
+    </div>
+    <div class="badge-row">
+        <span class="research-badge">Level 1 · terrestrial / extraterrestrial</span>
+        <span class="research-badge">Level 2 · extraterrestrial subclasses</span>
+        <span class="research-badge">13 compositional features</span>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 # -------------------- 网页字体 --------------------
 st.markdown("""
@@ -66,6 +79,70 @@ div[data-testid="stMarkdownContainer"] h4 {
 [data-testid="stDownloadButton"] button,
 [data-testid="stDownloadButton"] button p {
     font-size: 20px !important;
+}
+
+
+/* ---------- research UI refinements ---------- */
+.hero-subtitle {
+    font-size: 18px;
+    color: #5b6472;
+    margin-top: -8px;
+    margin-bottom: 12px;
+    line-height: 1.5;
+}
+.badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 18px;
+}
+.research-badge {
+    display: inline-block;
+    padding: 6px 11px;
+    border: 1px solid #dbe3ec;
+    border-radius: 999px;
+    background: #f7f9fc;
+    color: #354052;
+    font-size: 15px;
+    font-weight: 600;
+}
+.result-card {
+    border: 1px solid #e1e7ef;
+    border-radius: 12px;
+    background: #fbfcfe;
+    padding: 16px 18px;
+    min-height: 118px;
+}
+.result-card .card-label {
+    color: #6a7380;
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 7px;
+}
+.result-card .card-value {
+    color: #1f2937;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.25;
+    margin-bottom: 7px;
+}
+.result-card .card-meta {
+    color: #697386;
+    font-size: 15px;
+    line-height: 1.35;
+}
+div[data-testid="stExpander"] {
+    border: 1px solid #e5eaf0 !important;
+    border-radius: 10px !important;
+    background: #fbfcfe !important;
+}
+.footer-note {
+    color: #8a93a0;
+    font-size: 13px;
+    text-align: center;
+    padding: 18px 0 8px 0;
 }
 
 </style>
@@ -169,7 +246,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: pretty-subscripts-v27")
+    st.caption("Build: research-ui-v28")
 
     
     def load_model_and_metadata():
@@ -716,7 +793,7 @@ if uploaded_file is not None:
             pred2_label[empty2.values] = ABSTAIN_LABEL
             p2unk[empty2.values] = 1.0
 
-        # -------------------- 结果表 --------------------
+        # -------------------- 结果表 + batch overview --------------------
         df_display = df_uploaded.copy().reset_index(drop=True)
         df_display.insert(0, "Index", df_display.index + 1)
         df_display.insert(1, "Level1_Pred", display_level1_array(pred1_label))
@@ -727,14 +804,7 @@ if uploaded_file is not None:
         for i, c in enumerate(classes2):
             df_display[f"P_Level2_{display_level2_label(c)}"] = np.round(prob2_full[:, i].astype(float), 3)
 
-
-      
-      
-
-        st.subheader("🧾 Predictions")
-        render_big_scroll_table(df_display, height=430, font_px=21)
-
-        # -------------------- 组内多数票 + 均值概率 --------------------
+        # 组内多数票 + 均值概率（先计算，让主要结果出现在大表之前）
         l1_label, l1_share, l1_mean = level_group_stats(
             labels=pred1_label, classes=classes1, prob_by_class=prob1_use,
             p_max=p1max, p_unknown=None, fill_unknown_for_empty=False
@@ -750,8 +820,74 @@ if uploaded_file is not None:
         df_display["L2_TopShare"]    = l2_share
         df_display["L2_TopMeanProb"] = round(l2_mean, 3)
 
+        # -------------------- Prediction overview --------------------
+        st.subheader("🔎 Prediction overview")
+
+        l1_display = display_level1_label(l1_label)
+        n_extraterrestrial = int(mask_lvl2.sum())
+
+        if n_extraterrestrial > 0:
+            l2_display = display_level2_label(l2_label)
+            l2_meta = f"Mean probability: {l2_mean:.3f} · Share: {l2_share}"
+        else:
+            l2_display = "not applicable"
+            l2_meta = "No rows were predicted as extraterrestrial at Level 1."
+
+        overview_cols = st.columns([1.15, 1.35, 0.75], gap="medium")
+
+        with overview_cols[0]:
+            st.markdown(
+                f"""
+                <div class="result-card">
+                    <div class="card-label">Level 1 · dominant class</div>
+                    <div class="card-value">{l1_display}</div>
+                    <div class="card-meta">Mean probability: {l1_mean:.3f} · Share: {l1_share}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        with overview_cols[1]:
+            st.markdown(
+                f"""
+                <div class="result-card">
+                    <div class="card-label">Level 2 · dominant subclass</div>
+                    <div class="card-value">{l2_display}</div>
+                    <div class="card-meta">{l2_meta}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        with overview_cols[2]:
+            st.markdown(
+                f"""
+                <div class="result-card">
+                    <div class="card-label">Uploaded analyses</div>
+                    <div class="card-value">{N}</div>
+                    <div class="card-meta">{n_extraterrestrial} rows entered Level 2.</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        # -------------------- Compact prediction table --------------------
+        st.subheader("🧾 Predictions")
+        df_preview = pd.DataFrame({
+            "Index": df_display["Index"],
+            "Level1_Pred": df_display["Level1_Pred"],
+            "Level1_confidence": np.round(p1max, 3),
+            "Level2_Pred": df_display["Level2_Pred"],
+            "Level2_confidence": np.round(p2max, 3),
+        })
+        render_big_scroll_table(df_preview, height=320, font_px=21)
+
+        with st.expander("Show full analytical details and class probabilities", expanded=False):
+            render_big_scroll_table(df_display, height=430, font_px=19)
+
         # -------------------- SHAP：tabs 横向滚动 + 两列并排 --------------------
         st.subheader("📈 SHAP Interpretability")
+        st.caption("Feature contributions to class predictions. Switch between global importance bars and beeswarm views.")
         st.markdown("""
         <style>
         .stTabs [data-baseweb="tab-list"]{
@@ -941,6 +1077,7 @@ if uploaded_file is not None:
 
         # ===================== 📋 Classification summary (tables)  =====================
         st.subheader("📋 Classification summary (tables)")
+        st.caption("Distribution of predicted classes across the uploaded analyses.")
 
         def _make_summary_from_labels(labels, total_n=None) -> pd.DataFrame:
             if labels is None:
@@ -1207,3 +1344,12 @@ if uploaded_file is not None:
         st.exception(e)
 else:
     st.info("Please upload a data file to proceed.")
+
+st.markdown(
+    """
+    <div class="footer-note">
+        Chromite Extraterrestrial Origin Classifier · Research-use classification interface
+    </div>
+    """,
+    unsafe_allow_html=True
+)
