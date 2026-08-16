@@ -27,23 +27,45 @@ st.markdown("""
 .stTabs [data-baseweb="tab"],
 .stRadio label,
 .stRadio [role="radiogroup"] label p {
-    font-size: 22px !important;
+    font-size: 21px !important;
 }
 
 /* Level1 / Level2 (per class) */
 div[data-testid="stMarkdownContainer"] h4 {
-    font-size: 24px !important;
+    font-size: 26px !important;
 }
 
 /* 上传框内部稍大；上传框上方说明保持较小 */
 [data-testid="stFileUploader"] button,
 [data-testid="stFileUploader"] small,
 [data-testid="stFileUploader"] span {
-    font-size: 15px !important;
+    font-size: 20px !important;
 }
 [data-testid="stFileUploader"] > label,
 [data-testid="stFileUploader"] > label p {
-    font-size: 14px !important;
+    font-size: 18px !important;
+}
+
+
+/* larger checkbox labels */
+[data-testid="stCheckbox"] label,
+[data-testid="stCheckbox"] label p,
+[data-testid="stCheckbox"] span {
+    font-size: 21px !important;
+}
+
+/* larger download / normal buttons */
+.stDownloadButton button,
+.stDownloadButton button p,
+.stButton button,
+.stButton button p {
+    font-size: 20px !important;
+}
+
+
+[data-testid="stDownloadButton"] button,
+[data-testid="stDownloadButton"] button p {
+    font-size: 20px !important;
 }
 
 </style>
@@ -114,7 +136,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: huge-tables-big-shap-ui-v18")
+    st.caption("Build: larger-ui-table21-v19")
 
     
     def load_model_and_metadata():
@@ -291,7 +313,7 @@ def _save_fig_as_png_bytes(fig, dpi=220):
     buf.seek(0)
     return buf.getvalue()
 
-def render_big_scroll_table(df: pd.DataFrame, height: int = 430, font_px: int = 24):
+def render_big_scroll_table(df: pd.DataFrame, height: int = 430, font_px: int = 21):
     """Render a real scrollable HTML table with controllable font size."""
     if df is None or df.empty:
         st.info("No data")
@@ -344,7 +366,7 @@ def render_big_scroll_table(df: pd.DataFrame, height: int = 430, font_px: int = 
             font-weight: 600;
             color: #30343b;
             white-space: nowrap;
-            padding: 10px 13px;
+            padding: 9px 12px;
             border-bottom: 1px solid #d9dde3;
             border-right: 1px solid #eceff3;
             text-align: left;
@@ -354,7 +376,7 @@ def render_big_scroll_table(df: pd.DataFrame, height: int = 430, font_px: int = 
             font-size: {font_px}px;
             color: #30343b;
             white-space: nowrap;
-            padding: 10px 13px;
+            padding: 9px 12px;
             border-bottom: 1px solid #eceff3;
             border-right: 1px solid #f1f3f5;
             text-align: left;
@@ -642,7 +664,7 @@ if uploaded_file is not None:
       
 
         st.subheader("🧾 Predictions")
-        render_big_scroll_table(df_display, height=430, font_px=24)
+        render_big_scroll_table(df_display, height=430, font_px=21)
 
         # -------------------- 组内多数票 + 均值概率 --------------------
         l1_label, l1_share, l1_mean = level_group_stats(
@@ -668,21 +690,21 @@ if uploaded_file is not None:
             overflow-x:auto!important;overflow-y:hidden;white-space:nowrap;
             scrollbar-width:thin;-ms-overflow-style:auto;
         }
-        .stTabs [data-baseweb="tab"]{white-space:nowrap;padding: 10px 16px;margin:0 3px;font-size:22px!important;}
+        .stTabs [data-baseweb="tab"]{white-space:nowrap;padding: 10px 16px;margin:0 3px;font-size:23px!important;}
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar{ height:8px; }
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb{ background:rgba(0,0,0,.25); border-radius:8px; }
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-track{ background:rgba(0,0,0,.06); border-radius:8px; }
-        .stRadio label {font-size:22px!important;}
-        .stRadio [role="radiogroup"] label p {font-size:22px!important;}
+        .stRadio label {font-size:21px!important;}
+        .stRadio [role="radiogroup"] label p {font-size:21px!important;}
         div[data-testid="stMarkdownContainer"] h4 {
-            font-size:24px!important;
+            font-size:26px!important;
             margin-bottom:0.5rem!important;
         }
         </style>
         """, unsafe_allow_html=True)
 
         TOP_K = 13
-        st.markdown("<div style='font-size:22px;font-weight:500;margin-bottom:6px;'>Per-class SHAP view</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:21px;font-weight:500;margin-bottom:6px;'>Per-class SHAP view</div>", unsafe_allow_html=True)
         chart_kind = st.radio(
             "Per-class SHAP view",
             ["Bar (mean |SHAP|)", "Beeswarm"],
@@ -848,13 +870,13 @@ if uploaded_file is not None:
             if df_l1_tbl.empty:
                 st.info("No data")
             else:
-                render_big_scroll_table(df_l1_tbl, height=260, font_px=24)
+                render_big_scroll_table(df_l1_tbl, height=260, font_px=21)
 
         with cols_tbl[1]:
             if df_l2_tbl.empty:
                 st.info("No Level2 (Extraterrestrial only) data")
             else:
-                render_big_scroll_table(df_l2_tbl, height=260, font_px=24)
+                render_big_scroll_table(df_l2_tbl, height=260, font_px=21)
 
         # ===================== 🪐 Class share (pie)  =====================
         st.subheader("🪐 Class share (pie)")
@@ -1018,7 +1040,7 @@ if uploaded_file is not None:
                 {"Level": "Level1", "Top class": display_level1_label(l1_label), "Share": l1_share, "Mean prob": round(l1_mean, 3)},
                 {"Level": "Level2", "Top class": display_level2_label(l2_label), "Share": l2_share, "Mean prob": round(l2_mean, 3)},
             ]
-            render_big_scroll_table(pd.DataFrame(rows), height=220, font_px=24)
+            render_big_scroll_table(pd.DataFrame(rows), height=220, font_px=21)
 
         # -------------------- 训练池（在直方图后，下载前） --------------------
         st.subheader("🧩 Add Predictions to Training Pool?")
