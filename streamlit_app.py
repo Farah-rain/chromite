@@ -11,7 +11,7 @@ from itertools import chain
 # -------------------- 页面配置 --------------------
 st.set_page_config(page_title="Chromite Provenance Classifier", layout="wide")
 def render_hero_banner():
-    hero_path = "chromite_space_banner.png" if os.path.exists("chromite_space_banner.png") else None
+    hero_path = "chromite_space_header.jpg" if os.path.exists("chromite_space_header.jpg") else None
 
     if hero_path:
         with open(hero_path, "rb") as f:
@@ -19,8 +19,16 @@ def render_hero_banner():
 
         st.markdown(
             f"""
-            <div class="hero-banner-wrap">
-                <img src="data:image/png;base64,{hero_b64}" class="hero-banner" alt="Chromite Provenance Classifier banner"/>
+            <div class="hero-banner-wrap"
+                 style="background-image:
+                        linear-gradient(90deg, rgba(2,12,28,0.74) 0%, rgba(2,12,28,0.48) 48%, rgba(2,12,28,0.18) 100%),
+                        url('data:image/jpeg;base64,{hero_b64}');">
+                <div class="hero-content">
+                    <div class="hero-title">Chromite Provenance Classifier</div>
+                    <div class="hero-subtitle">
+                        Machine-learning classification of chromite compositions for terrestrial–extraterrestrial provenance and extraterrestrial subclass attribution.
+                    </div>
+                </div>
             </div>
             """,
             unsafe_allow_html=True
@@ -29,7 +37,7 @@ def render_hero_banner():
         st.title("✨ Chromite Provenance Classifier")
         st.markdown(
             """
-            <div class="hero-subtitle">
+            <div class="hero-subtitle-fallback">
                 Machine-learning classification of chromite compositions for terrestrial–extraterrestrial provenance and extraterrestrial subclass attribution.
             </div>
             """,
@@ -40,22 +48,54 @@ def render_hero_banner():
 st.markdown("""
 <style>
 
-/* ---------- hero banner ---------- */
+/* ---------- compact research hero ---------- */
 .hero-banner-wrap {
     width: 100%;
-    margin: 6px 0 14px 0;
-}
-.hero-banner {
-    width: 100%;
-    display: block;
+    min-height: 255px;
+    margin: 6px 0 18px 0;
     border-radius: 18px;
-    box-shadow: 0 8px 28px rgba(12, 24, 48, 0.22);
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+    box-shadow: 0 8px 28px rgba(12, 24, 48, 0.20);
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+}
+.hero-content {
+    max-width: 980px;
+    padding: 38px 58px;
+}
+.hero-title {
+    color: #ffffff !important;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: clamp(34px, 3.6vw, 58px);
+    font-weight: 700;
+    line-height: 1.08;
+    letter-spacing: 0.2px;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.30);
 }
 .hero-subtitle {
-    font-size: 21px;
-    color: #6b7280;
-    margin-top: -4px;
-    margin-bottom: 10px;
+    margin-top: 16px;
+    max-width: 900px;
+    color: rgba(255,255,255,0.90) !important;
+    font-size: clamp(16px, 1.35vw, 22px) !important;
+    line-height: 1.45;
+    text-shadow: 0 1px 8px rgba(0,0,0,0.32);
+}
+.hero-subtitle-fallback {
+    font-size: 18px;
+    color: #5b6472;
+    margin-bottom: 12px;
+}
+@media (max-width: 900px) {
+    .hero-banner-wrap {
+        min-height: 220px;
+        background-position: 58% center;
+    }
+    .hero-content {
+        padding: 28px 30px;
+    }
 }
 
 /* 普通网页控件：明显大一点 */
@@ -112,13 +152,6 @@ div[data-testid="stMarkdownContainer"] h4 {
 
 
 /* ---------- research UI refinements ---------- */
-.hero-subtitle {
-    font-size: 18px;
-    color: #5b6472;
-    margin-top: -8px;
-    margin-bottom: 12px;
-    line-height: 1.5;
-}
 .research-badge {
     display: inline-block;
     padding: 11px 17px;
@@ -345,7 +378,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: english-banner-v39")
+    st.caption("Build: compact-hero-v40")
 
     
     def load_model_and_metadata():
