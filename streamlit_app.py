@@ -75,8 +75,8 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 # -------------------- 右侧控制（字体/尺寸缩放 A±） --------------------
 with st.sidebar:
     st.subheader("Display / Models")
-    chart_scale = st.slider("Chart scale (A±)", 0.75, 1.30, 0.90, 0.05)
-    st.caption("Build: two-level-full-labels-v7")
+    chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
+    st.caption("Build: two-level-full-labels-v8")
 
     
     def load_model_and_metadata():
@@ -571,7 +571,7 @@ if uploaded_file is not None:
             vals  = mean_abs[sel]
 
             # 紧凑版：保留 13 个特征，但不让图占满整个网页。
-            fig, ax = plt.subplots(figsize=(5.5*chart_scale, 4.5*chart_scale))
+            fig, ax = plt.subplots(figsize=(4.6*chart_scale, 3.8*chart_scale))
             ax.barh(np.arange(len(vals)), vals)
             ax.set_yticks(np.arange(len(vals)))
             ax.set_yticklabels(feats, fontsize=max(8, int(9*chart_scale)))
@@ -637,17 +637,17 @@ if uploaded_file is not None:
                     else:
                         shap.summary_plot(arr, X, max_display=TOP_K, show=False)
                         fig = plt.gcf()
-                        fig.set_size_inches(5.5*chart_scale, 4.5*chart_scale, forward=True)
+                        fig.set_size_inches(4.6*chart_scale, 3.8*chart_scale, forward=True)
                         plt.title(f"{level_name} · {cname}", fontsize=max(10, int(12*chart_scale)), pad=8)
                         plt.tight_layout(pad=0.9)
                         _show_shap_fig_compact(fig)
                         plt.close(fig)
 
         # 两侧留白 + 中间留白，不让两张图把整行塞满。
-        shap_layout = st.columns([0.08, 1.0, 0.16, 1.0, 0.08], gap="small")
+        shap_layout = st.columns([0.16, 0.84, 0.28, 0.84, 0.16], gap="small")
         cols_shap = [shap_layout[1], shap_layout[3]]
         X_map = {"Level1": df_input_L1, "Level2": df_input_L2}
-        for col, (mdl, nm) in zip(shap_slots, [(model_lvl1, "Level1"), (model_lvl2, "Level2")]):
+        for col, (mdl, nm) in zip(cols_shap, [(model_lvl1, "Level1"), (model_lvl2, "Level2")]):
             with col:
                 st.markdown(f"#### 🔍 {nm} (per class)")
                 _render_per_class(mdl, nm, X_map[nm])
