@@ -226,8 +226,7 @@ div[data-testid="stExpander"] details > summary:hover {
 }
 
 /* In current Streamlit the expander label is carried by a span, not the old p wrapper. */
-div[data-testid="stExpander"] details > summary > span,
-div[data-testid="stExpander"] details > summary > div {
+div[data-testid="stExpander"] details > summary > span {
     flex: 1 1 auto !important;
     width: 100% !important;
     display: flex !important;
@@ -241,9 +240,8 @@ div[data-testid="stExpander"] details > summary > div {
     color: #245b8f !important;
 }
 
-/* cover both pre-redesign and newer Streamlit text wrappers */
+/* also cover any nested markdown/text wrapper Streamlit inserts */
 div[data-testid="stExpander"] details > summary > span *,
-div[data-testid="stExpander"] details > summary > div *,
 div[data-testid="stExpander"] details > summary p {
     margin: 0 !important;
     padding: 0 !important;
@@ -286,11 +284,43 @@ div[data-testid="stExpander"] details[open] > summary {
     border-bottom: 1px solid #d4e4f5 !important;
 }
 
-/* ---------- file uploader ---------- */
-/* Keep the native Streamlit 1.55 uploader layout intact.
-   Only the general font-size rules above are applied, so drag/drop text,
-   Browse files, and the native remove-file control all remain functional. */
+/* ---------- file uploader: keep native controls, enlarge them, and preserve the remove-file button ---------- */
+div[data-testid="stFileUploader"] {
+    width: 100% !important;
+}
 
+/* Main upload/drop-zone container */
+div[data-testid="stFileUploader"] section {
+    min-height: 76px !important;
+    padding: 10px 14px !important;
+    border-radius: 8px !important;
+}
+
+/* Upload/Browse button: restore the larger, easier-to-read appearance */
+div[data-testid="stFileUploader"] button {
+    min-height: 44px !important;
+    padding: 8px 15px !important;
+}
+
+div[data-testid="stFileUploader"] button,
+div[data-testid="stFileUploader"] button p,
+div[data-testid="stFileUploader"] button span {
+    font-size: 20px !important;
+    line-height: 1.2 !important;
+}
+
+/* File-type / size hint */
+div[data-testid="stFileUploader"] small,
+div[data-testid="stFileUploader"] section > div > span {
+    font-size: 19px !important;
+}
+
+/* IMPORTANT: do not hide uploader SVGs. The X/remove-file control is an SVG button. */
+div[data-testid="stFileUploader"] button svg {
+    display: block !important;
+    width: 20px !important;
+    height: 20px !important;
+}
 .footer-note {
     color: #8a93a0;
     font-size: 13px;
