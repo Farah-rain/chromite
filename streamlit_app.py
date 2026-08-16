@@ -15,10 +15,10 @@ st.title("✨ Chromite Extraterrestrial Origin Classifier")
 st.markdown("""
 <style>
 /* 主要页面标题/分区标题 */
-h1 { font-size: 34px !important; }
+h1 { font-size: 40px !important; }
 h2 { font-size: 27px !important; }
-h3 { font-size: 23px !important; }
-h4 { font-size: 20px !important; }
+h3 { font-size: 36px !important; }
+h4 { font-size: 30px !important; }
 
 /* 普通网页文字、caption、checkbox、按钮等整体放大 */
 .stMarkdown p,
