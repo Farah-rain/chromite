@@ -3,26 +3,19 @@ extraterrestrial
 terrestrial
 
 # Level2
-OC
-Merge
-Iron
-High-Ti Lunar
-Low-Ti Lunar
-Mars
-CC
-Winonaite
-ⅠAB
-A-L
-Brachinite
-Pallasite
-OC
-Win-ⅠAB
+equilibrated ordinary chondrites
+HED-mesosiderites
+high-Ti Lunar samples
+low-Ti Lunar samples
+martian meteorites
+carbonaceous chondrites
+winonaite-IAB irons
+acapulcoites-lodranites
+brachinite
+pallasite
 
-# Level3
 
-H
-L
-LL
+
 
 
 
