@@ -543,17 +543,17 @@ if uploaded_file is not None:
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar{ height:8px; }
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb{ background:rgba(0,0,0,.25); border-radius:8px; }
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-track{ background:rgba(0,0,0,.06); border-radius:8px; }
-        .stRadio label {font-size:16px!important;}
+        .stRadio label {font-size:20px!important;}
         .stRadio [role="radiogroup"] label p {font-size:16px!important;}
         div[data-testid="stMarkdownContainer"] h4 {
-            font-size:24px!important;
+            font-size:20px!important;
             margin-bottom:0.5rem!important;
         }
         </style>
         """, unsafe_allow_html=True)
 
         TOP_K = 13
-        st.markdown("<div style='font-size:16px;font-weight:500;margin-bottom:2px;'>Per-class SHAP view</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:20px;font-weight:500;margin-bottom:2px;'>Per-class SHAP view</div>", unsafe_allow_html=True)
         chart_kind = st.radio(
             "Per-class SHAP view",
             ["Bar (mean |SHAP|)", "Beeswarm"],
