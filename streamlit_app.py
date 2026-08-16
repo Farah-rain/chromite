@@ -1076,6 +1076,10 @@ if uploaded_file is not None:
         })
         render_big_scroll_table(df_preview, height=320, font_px=21)
 
+        # Keep the final Excel download button visually next to Prediction Results.
+        # The file is prepared later, then rendered back into this placeholder.
+        download_predictions_placeholder = st.empty()
+
         with st.expander("Show full analytical details and class probabilities", expanded=False):
             render_big_scroll_table(df_display, height=430, font_px=19)
 
@@ -1084,14 +1088,37 @@ if uploaded_file is not None:
         st.caption("Feature contributions to class predictions. Switch between global importance bars and beeswarm views.")
         st.markdown("""
         <style>
-        .stTabs [data-baseweb="tab-list"]{
-            overflow-x:auto!important;overflow-y:hidden;white-space:nowrap;
-            scrollbar-width:thin;-ms-overflow-style:auto;
+        div[data-testid="stTabs"] [data-baseweb="tab-list"]{
+            display:flex!important;
+            flex-wrap:nowrap!important;
+            overflow-x:scroll!important;
+            overflow-y:hidden!important;
+            white-space:nowrap!important;
+            scrollbar-width:auto!important;
+            scrollbar-color:#7c8795 #e9edf2!important;
+            scrollbar-gutter:stable!important;
+            padding-bottom:10px!important;
         }
-        .stTabs [data-baseweb="tab"]{white-space:nowrap;padding: 10px 16px;margin:0 3px;font-size:27px!important;}
-        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar{ height:8px; }
-        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb{ background:rgba(0,0,0,.25); border-radius:8px; }
-        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-track{ background:rgba(0,0,0,.06); border-radius:8px; }
+        div[data-testid="stTabs"] [data-baseweb="tab"]{
+            flex:0 0 auto!important;
+            white-space:nowrap!important;
+            padding:10px 16px!important;
+            margin:0 3px!important;
+            font-size:27px!important;
+        }
+        div[data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar{
+            display:block!important;
+            height:12px!important;
+        }
+        div[data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar-thumb{
+            background:#7c8795!important;
+            border-radius:8px!important;
+            border:2px solid #e9edf2!important;
+        }
+        div[data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar-track{
+            background:#e9edf2!important;
+            border-radius:8px!important;
+        }
         .stRadio label {font-size:21px!important;}
         .stRadio [role="radiogroup"] label p {font-size:21px!important;}
         div[data-testid="stMarkdownContainer"] h4 {
@@ -1387,13 +1414,13 @@ if uploaded_file is not None:
 
                 # One large panel: pie on the left, frequency bars on the right,
                 # color legend spanning the full width underneath.
-                fig = plt.figure(figsize=(10.6, 6.6))
+                fig = plt.figure(figsize=(10.4, 6.5))
                 gs = fig.add_gridspec(
                     2, 2,
-                    height_ratios=[3.55, 1.45],
-                    width_ratios=[0.90, 1.15],
-                    hspace=0.32,
-                    wspace=0.36
+                    height_ratios=[3.35, 1.45],
+                    width_ratios=[0.88, 1.12],
+                    hspace=0.34,
+                    wspace=0.42
                 )
                 ax_pie = fig.add_subplot(gs[0, 0])
                 ax_bar = fig.add_subplot(gs[0, 1])
@@ -1411,7 +1438,7 @@ if uploaded_file is not None:
                     labels=None,
                     autopct=_autopct,
                     pctdistance=0.70,
-                    radius=0.88,
+                    radius=0.80,
                     wedgeprops=dict(linewidth=0.9, edgecolor="white"),
                     textprops=dict(fontsize=14)
                 )
@@ -1466,8 +1493,8 @@ if uploaded_file is not None:
                 except Exception:
                     pass
 
-                fig.suptitle(title, fontsize=19, y=0.955)
-                fig.subplots_adjust(left=0.08, right=0.94, top=0.86, bottom=0.10)
+                fig.suptitle(title, fontsize=19, y=0.965)
+                fig.subplots_adjust(left=0.10, right=0.92, top=0.79, bottom=0.11)
 
                 png = _stats_png_bytes(fig)
                 st.image(png, width="stretch")
@@ -1678,12 +1705,14 @@ if uploaded_file is not None:
             _round_float_columns(df_l1_export, 3).to_excel(writer, index=False, sheet_name='Summary_L1')
             _round_float_columns(df_l2_export, 3).to_excel(writer, index=False, sheet_name='Summary_L2')
 
-        st.download_button(
-            label="📥 Download Predictions (Excel)",
-            data=output.getvalue(),
-            file_name="prediction_results.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        with download_predictions_placeholder:
+            st.download_button(
+                label="📥 Download Predictions (Excel)",
+                data=output.getvalue(),
+                file_name="prediction_results.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="download_predictions_excel"
+            )
 
     except Exception as e:
         st.error("Error while processing the uploaded file.")
