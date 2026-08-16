@@ -136,7 +136,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: larger-ui-table21-v19")
+    st.caption("Build: chart-shortlabels-v20")
 
     
     def load_model_and_metadata():
@@ -735,7 +735,7 @@ if uploaded_file is not None:
             vals  = mean_abs[sel]
 
             # 紧凑版：保留 13 个特征，但不让图占满整个网页。
-            fig, ax = plt.subplots(figsize=(3.6*chart_scale, 2.8*chart_scale))
+            fig, ax = plt.subplots(figsize=(3.2*chart_scale, 2.5*chart_scale))
             ax.barh(np.arange(len(vals)), vals)
             ax.set_yticks(np.arange(len(vals)))
             ax.set_yticklabels(feats, fontsize=8)
@@ -954,7 +954,7 @@ if uploaded_file is not None:
                     textprops=dict(fontsize=8)
                 )
 
-                legend_labels = [f"{lab}, {_fmt_frac(sh)}" for lab, sh in zip(df_in["Class"], df_in["share"])]
+                legend_labels = [f"{_short_chart_label(lab)}, {_fmt_frac(sh)}" for lab, sh in zip(df_in["Class"], df_in["share"])]
                 ax.legend(
                     wedges, legend_labels, title="Class",
                     loc="center left", bbox_to_anchor=(1.02, 0.5),
@@ -985,8 +985,8 @@ if uploaded_file is not None:
             with col:
                 if df.empty or int(df["count"].sum() or 0) == 0:
                     st.info("No data"); return
-                fig, ax = plt.subplots(figsize=(3.6*chart_scale, 2.8*chart_scale))
-                x = df["Class"].astype(str).tolist()
+                fig, ax = plt.subplots(figsize=(3.2*chart_scale, 2.5*chart_scale))
+                x = [_short_chart_label(v) for v in df["Class"].astype(str).tolist()]
                 y = df["count"].astype(int).tolist()
                 ax.bar(range(len(x)), y, edgecolor="black", color=[PALETTE[i % len(PALETTE)] for i in range(len(x))])
                 ax.set_xticks(range(len(x)))
@@ -999,7 +999,7 @@ if uploaded_file is not None:
                 for i, yi in enumerate(y):
                     ax.text(i, yi + ymax * 0.02, f"{yi}/{total_n}", ha="center", va="bottom", fontsize=8)
 
-                plt.subplots_adjust(left=0.10, right=0.98, top=0.92, bottom=0.28)
+                plt.subplots_adjust(left=0.12, right=0.98, top=0.90, bottom=0.26)
                 _show_shap_fig_compact(fig)
                 st.download_button(
                     "⬇️ Download PNG",
