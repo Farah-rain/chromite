@@ -1383,13 +1383,13 @@ if uploaded_file is not None:
 
                 # One large panel: pie on the left, frequency bars on the right,
                 # color legend spanning the full width underneath.
-                fig = plt.figure(figsize=(10.6, 5.9))
+                fig = plt.figure(figsize=(10.6, 6.6))
                 gs = fig.add_gridspec(
                     2, 2,
-                    height_ratios=[4.4, 1.25],
-                    width_ratios=[1.0, 1.32],
-                    hspace=0.18,
-                    wspace=0.32
+                    height_ratios=[3.55, 1.45],
+                    width_ratios=[0.90, 1.15],
+                    hspace=0.32,
+                    wspace=0.36
                 )
                 ax_pie = fig.add_subplot(gs[0, 0])
                 ax_bar = fig.add_subplot(gs[0, 1])
@@ -1407,19 +1407,20 @@ if uploaded_file is not None:
                     labels=None,
                     autopct=_autopct,
                     pctdistance=0.70,
+                    radius=0.88,
                     wedgeprops=dict(linewidth=0.9, edgecolor="white"),
-                    textprops=dict(fontsize=15)
+                    textprops=dict(fontsize=14)
                 )
                 ax_pie.axis("equal")
-                ax_pie.set_title("Class share", fontsize=17, pad=10)
+                ax_pie.set_title("Class share", fontsize=17, pad=8)
 
                 x = np.arange(len(labels))
                 ax_bar.bar(x, counts, edgecolor="black", linewidth=0.8, color=colors)
                 ax_bar.set_xticks(x)
-                ax_bar.set_xticklabels(short_labels, rotation=24, ha="right", fontsize=13)
+                ax_bar.set_xticklabels(short_labels, rotation=20, ha="right", fontsize=12)
                 ax_bar.set_ylabel("Count", fontsize=15)
                 ax_bar.tick_params(axis="y", labelsize=13)
-                ax_bar.set_title("Class frequency", fontsize=17, pad=10)
+                ax_bar.set_title("Class frequency", fontsize=17, pad=8)
 
                 ymax = max(max(counts), 1)
                 ax_bar.set_ylim(0, ymax * 1.22)
@@ -1431,31 +1432,38 @@ if uploaded_file is not None:
                     )
 
                 legend_labels = [
-                    f"{lab}: {cnt}/{total_n} ({_fmt_frac(cnt / float(total_n))})"
+                    f"{_short_chart_label(lab)}: {cnt}/{total_n} ({_fmt_frac(cnt / float(total_n))})"
                     for lab, cnt in zip(labels, counts)
                 ]
-                ncol = 2 if len(labels) <= 4 else 3
+                if len(labels) <= 3:
+                    ncol = 1
+                elif len(labels) <= 6:
+                    ncol = 2
+                else:
+                    ncol = 3
                 leg = ax_leg.legend(
                     handles=[Patch(facecolor=c, edgecolor="none") for c in colors],
                     labels=legend_labels,
                     title="Color legend",
                     loc="center",
+                    bbox_to_anchor=(0.5, 0.42),
                     ncol=ncol,
                     frameon=False,
-                    fontsize=13,
+                    fontsize=12,
                     title_fontsize=14,
-                    columnspacing=1.6,
-                    handlelength=1.4,
-                    handletextpad=0.6,
-                    labelspacing=0.55
+                    columnspacing=1.8,
+                    handlelength=1.3,
+                    handletextpad=0.55,
+                    labelspacing=0.85,
+                    borderaxespad=0.0
                 )
                 try:
                     leg._legend_box.align = "left"
                 except Exception:
                     pass
 
-                fig.suptitle(title, fontsize=19, y=0.985)
-                fig.subplots_adjust(left=0.06, right=0.97, top=0.88, bottom=0.05)
+                fig.suptitle(title, fontsize=19, y=0.955)
+                fig.subplots_adjust(left=0.08, right=0.94, top=0.86, bottom=0.10)
 
                 png = _stats_png_bytes(fig)
                 st.image(png, width="stretch")
