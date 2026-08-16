@@ -11,12 +11,11 @@ from itertools import chain
 st.set_page_config(page_title="Chromite Extraterrestrial Origin Classifier", layout="wide")
 st.title("✨ Chromite Extraterrestrial Origin Classifier")
 
-# -------------------- 统一网页字体 --------------------
-# 主标题和 Predictions 保持原样；其余常规网页文字尽量统一为 15px
+# -------------------- 网页字体 --------------------
 st.markdown("""
 <style>
 
-/* ===== 统一字号 ===== */
+/* 普通网页控件：明显大一点 */
 .stMarkdown p,
 [data-testid="stCaptionContainer"],
 [data-testid="stCheckbox"] label,
@@ -24,34 +23,26 @@ st.markdown("""
 .stDownloadButton button,
 [data-testid="stSidebar"] label,
 [data-testid="stSidebar"] p,
-[data-testid="stFileUploader"] button,
-[data-testid="stFileUploader"] small,
-[data-testid="stFileUploader"] span,
 .stTabs [data-baseweb="tab"],
 .stRadio label,
 .stRadio [role="radiogroup"] label p {
-    font-size: 15px !important;
-}
-
-/* 表格：表头和数据统一 */
-[data-testid="stDataFrame"],
-[data-testid="stDataFrame"] div,
-[data-testid="stDataFrame"] span,
-[data-testid="stDataFrame"] p,
-[data-testid="stDataFrame"] th,
-[data-testid="stDataFrame"] td {
-    font-size: 15px !important;
+    font-size: 17px !important;
 }
 
 /* Level1 / Level2 (per class) */
 div[data-testid="stMarkdownContainer"] h4 {
-    font-size: 15px !important;
+    font-size: 17px !important;
 }
 
-/* 上传框上方那句说明文字：也统一为同样字号 */
+/* 上传框内部稍大；上传框上方说明保持较小 */
+[data-testid="stFileUploader"] button,
+[data-testid="stFileUploader"] small,
+[data-testid="stFileUploader"] span {
+    font-size: 15px !important;
+}
 [data-testid="stFileUploader"] > label,
 [data-testid="stFileUploader"] > label p {
-    font-size: 15px !important;
+    font-size: 14px !important;
 }
 
 </style>
@@ -122,7 +113,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: two-level-unified-font-v13")
+    st.caption("Build: big-tables-small-plots-v14")
 
     
     def load_model_and_metadata():
@@ -298,6 +289,65 @@ def _save_fig_as_png_bytes(fig, dpi=220):
     fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
     buf.seek(0)
     return buf.getvalue()
+
+def render_big_scroll_table(df: pd.DataFrame, height: int = 430, font_px: int = 18):
+    """Render a horizontally/vertically scrollable HTML table with a guaranteed font size."""
+    if df is None or df.empty:
+        st.info("No data")
+        return
+
+    html = df.to_html(
+        index=False,
+        escape=True,
+        border=0,
+        classes="big-scroll-table"
+    )
+
+    st.markdown(
+        f"""
+        <style>
+        .big-table-wrap {
+            width: 100%;
+            max-height: {height}px;
+            overflow: auto;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            background: white;
+        }
+        .big-table-wrap table.big-scroll-table {
+            border-collapse: collapse;
+            width: max-content;
+            min-width: 100%;
+            font-size: {font_px}px !important;
+            line-height: 1.35;
+        }
+        .big-table-wrap table.big-scroll-table th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #f6f7f9;
+            font-size: {font_px}px !important;
+            font-weight: 600;
+            white-space: nowrap;
+            padding: 7px 10px;
+            border-bottom: 1px solid #d9dde3;
+            border-right: 1px solid #eceff3;
+        }
+        .big-table-wrap table.big-scroll-table td {
+            font-size: {font_px}px !important;
+            white-space: nowrap;
+            padding: 7px 10px;
+            border-bottom: 1px solid #eceff3;
+            border-right: 1px solid #f1f3f5;
+        }
+        </style>
+        <div class="big-table-wrap">
+            {html}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 
 # -------------------- 数据预处理 --------------------
 
@@ -559,7 +609,7 @@ if uploaded_file is not None:
       
 
         st.subheader("🧾 Predictions")
-        st.dataframe(df_display, use_container_width=True)
+        render_big_scroll_table(df_display, height=430, font_px=18)
 
         # -------------------- 组内多数票 + 均值概率 --------------------
         l1_label, l1_share, l1_mean = level_group_stats(
@@ -630,13 +680,13 @@ if uploaded_file is not None:
             vals  = mean_abs[sel]
 
             # 紧凑版：保留 13 个特征，但不让图占满整个网页。
-            fig, ax = plt.subplots(figsize=(4.6*chart_scale, 3.8*chart_scale))
+            fig, ax = plt.subplots(figsize=(3.6*chart_scale, 2.8*chart_scale))
             ax.barh(np.arange(len(vals)), vals)
             ax.set_yticks(np.arange(len(vals)))
-            ax.set_yticklabels(feats, fontsize=15)
-            ax.tick_params(axis="x", labelsize=15)
-            ax.set_xlabel("mean |SHAP|", fontsize=15)
-            ax.set_title(title, fontsize=15, pad=8)
+            ax.set_yticklabels(feats, fontsize=8)
+            ax.tick_params(axis="x", labelsize=8)
+            ax.set_xlabel("mean |SHAP|", fontsize=8)
+            ax.set_title(title, fontsize=10, pad=6)
             fig.tight_layout(pad=0.9)
             _show_shap_fig_compact(fig)
             plt.close(fig)
@@ -696,23 +746,23 @@ if uploaded_file is not None:
                     else:
                         shap.summary_plot(arr, X, max_display=TOP_K, show=False)
                         fig = plt.gcf()
-                        fig.set_size_inches(4.6*chart_scale, 3.8*chart_scale, forward=True)
+                        fig.set_size_inches(3.6*chart_scale, 2.8*chart_scale, forward=True)
                         ax = plt.gca()
-                        ax.tick_params(axis="both", labelsize=15)
-                        ax.set_xlabel(ax.get_xlabel(), fontsize=15)
-                        ax.set_ylabel(ax.get_ylabel(), fontsize=15)
-                        plt.title(f"{level_name} · {cname}", fontsize=15, pad=8)
+                        ax.tick_params(axis="both", labelsize=8)
+                        ax.set_xlabel(ax.get_xlabel(), fontsize=8)
+                        ax.set_ylabel(ax.get_ylabel(), fontsize=8)
+                        plt.title(f"{level_name} · {cname}", fontsize=10, pad=6)
                         # SHAP may create a colorbar as a second axes; enlarge its text too.
                         if len(fig.axes) > 1:
                             for extra_ax in fig.axes[1:]:
-                                extra_ax.tick_params(labelsize=15)
-                                extra_ax.yaxis.label.set_size(15)
+                                extra_ax.tick_params(labelsize=8)
+                                extra_ax.yaxis.label.set_size(8)
                         plt.tight_layout(pad=0.9)
                         _show_shap_fig_compact(fig)
                         plt.close(fig)
 
         # 两侧留白 + 中间留白，不让两张图把整行塞满。
-        shap_layout = st.columns([0.16, 0.84, 0.28, 0.84, 0.16], gap="small")
+        shap_layout = st.columns([1.45, 2.15, 1.8, 2.15, 1.45], gap="small")
         cols_shap = [shap_layout[1], shap_layout[3]]
         X_map = {"Level1": df_input_L1, "Level2": df_input_L2}
         for col, (mdl, nm) in zip(cols_shap, [(model_lvl1, "Level1"), (model_lvl2, "Level2")]):
@@ -765,13 +815,13 @@ if uploaded_file is not None:
             if df_l1_tbl.empty:
                 st.info("No data")
             else:
-                st.dataframe(df_l1_tbl, use_container_width=True)
+                render_big_scroll_table(df_l1_tbl, height=260, font_px=18)
 
         with cols_tbl[1]:
             if df_l2_tbl.empty:
                 st.info("No Level2 (Extraterrestrial only) data")
             else:
-                st.dataframe(df_l2_tbl, use_container_width=True)
+                render_big_scroll_table(df_l2_tbl, height=260, font_px=18)
 
         # ===================== 🪐 Class share (pie)  =====================
         st.subheader("🪐 Class share (pie)")
@@ -839,27 +889,27 @@ if uploaded_file is not None:
                 def _autopct(pct):
                     return f"{pct:.0f}%" if (pct/100.0) >= small_cut else ""
 
-                fig, ax = plt.subplots(figsize=(7.2*chart_scale, 5.2*chart_scale))
+                fig, ax = plt.subplots(figsize=(3.6*chart_scale, 2.8*chart_scale))
                 wedges, texts, autotexts = ax.pie(
                     sizes, startangle=110, counterclock=False,
                     colors=colors, labels=None,
                     autopct=_autopct, pctdistance=0.72,
                     labeldistance=1.10,
                     wedgeprops=dict(linewidth=0.9, edgecolor="white"),
-                    textprops=dict(fontsize=15)
+                    textprops=dict(fontsize=8)
                 )
 
                 legend_labels = [f"{lab}, {_fmt_frac(sh)}" for lab, sh in zip(df_in["Class"], df_in["share"])]
                 ax.legend(
                     wedges, legend_labels, title="Class",
                     loc="center left", bbox_to_anchor=(1.02, 0.5),
-                    frameon=False, fontsize=15,
-                    title_fontsize=15
+                    frameon=False, fontsize=8,
+                    title_fontsize=8
                 )
                 ax.axis("equal")
-                ax.set_title(title, fontsize=15, pad=10)
+                ax.set_title(title, fontsize=10, pad=6)
 
-                st.pyplot(fig)
+                _show_shap_fig_compact(fig)
                 st.download_button(
                     "⬇️ Download PNG",
                     _save_fig_as_png_bytes(fig, dpi=int(220*chart_scale)),
@@ -868,7 +918,8 @@ if uploaded_file is not None:
                 )
                 plt.close(fig)
 
-        cols_pie = st.columns(2, gap="large")
+        pie_layout = st.columns([1.45, 2.15, 1.8, 2.15, 1.45], gap="small")
+        cols_pie = [pie_layout[1], pie_layout[3]]
         _pie_full(cols_pie[0], df_pie_l1, "Level1 · class share", total_n=len(pred1_label))
         _pie_full(cols_pie[1], df_pie_l2, "Level2 · class share (Extraterrestrial only)", total_n=(N_L2 if N_L2 > 0 else 1))
 
@@ -879,22 +930,22 @@ if uploaded_file is not None:
             with col:
                 if df.empty or int(df["count"].sum() or 0) == 0:
                     st.info("No data"); return
-                fig, ax = plt.subplots(figsize=(9.5*chart_scale, 5.6*chart_scale))
+                fig, ax = plt.subplots(figsize=(3.6*chart_scale, 2.8*chart_scale))
                 x = df["Class"].astype(str).tolist()
                 y = df["count"].astype(int).tolist()
                 ax.bar(range(len(x)), y, edgecolor="black", color=[PALETTE[i % len(PALETTE)] for i in range(len(x))])
                 ax.set_xticks(range(len(x)))
-                ax.set_xticklabels(x, rotation=28, ha="right", fontsize=15)
-                ax.set_ylabel("Count", fontsize=15)
-                ax.set_title(title, fontsize=15)
+                ax.set_xticklabels(x, rotation=28, ha="right", fontsize=8)
+                ax.set_ylabel("Count", fontsize=8)
+                ax.set_title(title, fontsize=10)
 
                 ymax = max(max(y), 1)
                 ax.set_ylim(0, ymax * 1.18)
                 for i, yi in enumerate(y):
-                    ax.text(i, yi + ymax * 0.02, f"{yi}/{total_n}", ha="center", va="bottom", fontsize=15)
+                    ax.text(i, yi + ymax * 0.02, f"{yi}/{total_n}", ha="center", va="bottom", fontsize=8)
 
                 plt.subplots_adjust(left=0.10, right=0.98, top=0.92, bottom=0.28)
-                st.pyplot(fig)
+                _show_shap_fig_compact(fig)
                 st.download_button(
                     "⬇️ Download PNG",
                     _save_fig_as_png_bytes(fig, dpi=int(220*chart_scale)),
@@ -903,7 +954,8 @@ if uploaded_file is not None:
                 )
                 plt.close(fig)
 
-        cols_bar = st.columns(2, gap="large")
+        bar_layout = st.columns([1.45, 2.15, 1.8, 2.15, 1.45], gap="small")
+        cols_bar = [bar_layout[1], bar_layout[3]]
         _bar_from_df(cols_bar[0], df_pie_l1.sort_values(["count","Class"], ascending=[False,True]), "Level1 · frequency", total_n=len(pred1_label))
         _bar_from_df(cols_bar[1], df_pie_l2.sort_values(["count","Class"], ascending=[False,True]), "Level2 · frequency (Extraterrestrial only)", total_n=N_L2 if N_L2>0 else 1)
 
@@ -933,7 +985,7 @@ if uploaded_file is not None:
                 {"Level": "Level1", "Top class": display_level1_label(l1_label), "Share": l1_share, "Mean prob": round(l1_mean, 3)},
                 {"Level": "Level2", "Top class": display_level2_label(l2_label), "Share": l2_share, "Mean prob": round(l2_mean, 3)},
             ]
-            st.dataframe(pd.DataFrame(rows), use_container_width=True)
+            render_big_scroll_table(pd.DataFrame(rows), height=220, font_px=18)
 
         # -------------------- 训练池（在直方图后，下载前） --------------------
         st.subheader("🧩 Add Predictions to Training Pool?")
@@ -1000,4 +1052,3 @@ if uploaded_file is not None:
         st.exception(e)
 else:
     st.info("Please upload a data file to proceed.")
-    
