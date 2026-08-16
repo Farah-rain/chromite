@@ -136,7 +136,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: chart-shortlabels-v20")
+    st.caption("Build: chart-shortlabels-table3dp-v21")
 
     
     def load_model_and_metadata():
@@ -313,13 +313,48 @@ def _save_fig_as_png_bytes(fig, dpi=220):
     buf.seek(0)
     return buf.getvalue()
 
+def _short_chart_label(label):
+    """Use the abbreviation inside the last parentheses when available."""
+    raw = str(label).strip()
+    if raw == "Others":
+        return raw
+    if "(" in raw and raw.endswith(")"):
+        i = raw.rfind("(")
+        j = raw.rfind(")")
+        if i != -1 and j > i + 1:
+            return raw[i + 1:j].strip()
+    return raw
+
+
+def _round_float_columns(df: pd.DataFrame, decimals: int = 3) -> pd.DataFrame:
+    """Round floating-point columns while preserving integer/text columns."""
+    out = df.copy()
+    for col in out.columns:
+        if pd.api.types.is_float_dtype(out[col]):
+            out[col] = out[col].round(decimals)
+    return out
+
+
+def _format_table_for_html(df: pd.DataFrame, decimals: int = 3) -> pd.DataFrame:
+    """Format float columns to fixed decimals for website display."""
+    out = df.copy()
+    for col in out.columns:
+        if pd.api.types.is_float_dtype(out[col]):
+            out[col] = out[col].map(
+                lambda x: "" if pd.isna(x) else f"{float(x):.{decimals}f}"
+            )
+    return out
+
+
 def render_big_scroll_table(df: pd.DataFrame, height: int = 430, font_px: int = 21):
     """Render a real scrollable HTML table with controllable font size."""
     if df is None or df.empty:
         st.info("No data")
         return
 
-    html_table = df.to_html(
+    df_html = _format_table_for_html(df, decimals=3)
+
+    html_table = df_html.to_html(
         index=False,
         escape=True,
         border=0,
@@ -1087,13 +1122,13 @@ if uploaded_file is not None:
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             # 预测页（包含 OOD 列）
-            df_display.to_excel(writer, index=False, sheet_name='Prediction')
+            _round_float_columns(df_display, 3).to_excel(writer, index=False, sheet_name='Prediction')
 
             # 导出 Level1 / Level2 汇总
             df_l1_export = df_l1.copy(); df_l1_export.insert(0, "Level", "Level1")
             df_l2_export = df_l2.copy(); df_l2_export.insert(0, "Level", "Level2")
-            df_l1_export.to_excel(writer, index=False, sheet_name='Summary_L1')
-            df_l2_export.to_excel(writer, index=False, sheet_name='Summary_L2')
+            _round_float_columns(df_l1_export, 3).to_excel(writer, index=False, sheet_name='Summary_L1')
+            _round_float_columns(df_l2_export, 3).to_excel(writer, index=False, sheet_name='Summary_L2')
 
         st.download_button(
             label="📥 Download Predictions (Excel)",
