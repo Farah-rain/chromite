@@ -4,22 +4,17 @@ import pandas as pd
 import numpy as np
 import shap
 import matplotlib.pyplot as plt
-import os, joblib, requests, base64
+import os, joblib, requests, base64, re
 from io import BytesIO
 from itertools import chain
 
 # -------------------- 页面配置 --------------------
-st.set_page_config(page_title="Chromite Extraterrestrial Origin Classifier", layout="wide")
-st.title("✨ Chromite Extraterrestrial Origin Classifier")
+st.set_page_config(page_title="Chromite Provenance Classifier", layout="wide")
+st.title("✨ Chromite Provenance Classifier")
 st.markdown(
     """
     <div class="hero-subtitle">
-        Machine-learning classification of chromite compositions for terrestrial–extraterrestrial provenance assessment.
-    </div>
-    <div class="badge-row">
-        <span class="research-badge">Level 1 · terrestrial / extraterrestrial</span>
-        <span class="research-badge">Level 2 · extraterrestrial subclasses</span>
-        <span class="research-badge">13 compositional features</span>
+        Machine-learning classification of chromite compositions for terrestrial–extraterrestrial provenance and extraterrestrial subclass attribution.
     </div>
     """,
     unsafe_allow_html=True
@@ -90,15 +85,9 @@ div[data-testid="stMarkdownContainer"] h4 {
     margin-bottom: 12px;
     line-height: 1.5;
 }
-.badge-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-bottom: 18px;
-}
 .research-badge {
     display: inline-block;
-    padding: 6px 11px;
+    padding: 11px 17px;
     border: 1px solid #dbe3ec;
     border-radius: 999px;
     background: #f7f9fc;
@@ -143,6 +132,15 @@ div[data-testid="stExpander"] {
     font-size: 13px;
     text-align: center;
     padding: 18px 0 8px 0;
+}
+
+
+/* 强制放大 SHAP 类别 tabs */
+.stTabs [data-baseweb="tab"] p,
+.stTabs [data-baseweb="tab"] span,
+.stTabs [role="tab"] p,
+.stTabs [role="tab"] span {
+    font-size: 27px !important;
 }
 
 </style>
@@ -246,7 +244,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: research-ui-v28")
+    st.caption("Build: share-data-panel-v31")
 
     
     def load_model_and_metadata():
@@ -820,57 +818,6 @@ if uploaded_file is not None:
         df_display["L2_TopShare"]    = l2_share
         df_display["L2_TopMeanProb"] = round(l2_mean, 3)
 
-        # -------------------- Prediction overview --------------------
-        st.subheader("🔎 Prediction overview")
-
-        l1_display = display_level1_label(l1_label)
-        n_extraterrestrial = int(mask_lvl2.sum())
-
-        if n_extraterrestrial > 0:
-            l2_display = display_level2_label(l2_label)
-            l2_meta = f"Mean probability: {l2_mean:.3f} · Share: {l2_share}"
-        else:
-            l2_display = "not applicable"
-            l2_meta = "No rows were predicted as extraterrestrial at Level 1."
-
-        overview_cols = st.columns([1.15, 1.35, 0.75], gap="medium")
-
-        with overview_cols[0]:
-            st.markdown(
-                f"""
-                <div class="result-card">
-                    <div class="card-label">Level 1 · dominant class</div>
-                    <div class="card-value">{l1_display}</div>
-                    <div class="card-meta">Mean probability: {l1_mean:.3f} · Share: {l1_share}</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-        with overview_cols[1]:
-            st.markdown(
-                f"""
-                <div class="result-card">
-                    <div class="card-label">Level 2 · dominant subclass</div>
-                    <div class="card-value">{l2_display}</div>
-                    <div class="card-meta">{l2_meta}</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-        with overview_cols[2]:
-            st.markdown(
-                f"""
-                <div class="result-card">
-                    <div class="card-label">Uploaded analyses</div>
-                    <div class="card-value">{N}</div>
-                    <div class="card-meta">{n_extraterrestrial} rows entered Level 2.</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
         # -------------------- Compact prediction table --------------------
         st.subheader("🧾 Predictions")
         df_preview = pd.DataFrame({
@@ -894,7 +841,7 @@ if uploaded_file is not None:
             overflow-x:auto!important;overflow-y:hidden;white-space:nowrap;
             scrollbar-width:thin;-ms-overflow-style:auto;
         }
-        .stTabs [data-baseweb="tab"]{white-space:nowrap;padding: 10px 16px;margin:0 3px;font-size:23px!important;}
+        .stTabs [data-baseweb="tab"]{white-space:nowrap;padding: 10px 16px;margin:0 3px;font-size:27px!important;}
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar{ height:8px; }
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb{ background:rgba(0,0,0,.25); border-radius:8px; }
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-track{ background:rgba(0,0,0,.06); border-radius:8px; }
@@ -1251,74 +1198,177 @@ if uploaded_file is not None:
         _bar_from_df(cols_bar[0], df_pie_l1.sort_values(["count","Class"], ascending=[False,True]), "Level1 · frequency", total_n=len(pred1_label))
         _bar_from_df(cols_bar[1], df_pie_l2.sort_values(["count","Class"], ascending=[False,True]), "Level2 · frequency (Extraterrestrial only)", total_n=N_L2 if N_L2>0 else 1)
 
-        # -------------------- ✅ 样品一致性 + 组结果 --------------------
-        st.subheader("🧪 Specimen Confirmation & Group Result")
-        same_specimen = st.checkbox("I confirm all uploaded rows originate from the same physical specimen.")
-        if same_specimen:
-            depth = {"Level1": 1, "Level2": 2}
-            cands = [
-                ("Level1", {"label": l1_label, "share": int(l1_share.split('/')[0]) / N, "prob": l1_mean,
-                            "agree": int(l1_share.split('/')[0]), "total": N}),
-                ("Level2", {"label": l2_label, "share": int(l2_share.split('/')[0]) / N, "prob": l2_mean,
-                            "agree": int(l2_share.split('/')[0]), "total": N}),
-            ]
-            final_level, final = sorted(cands, key=lambda t: (t[1]["share"], t[1]["prob"], depth[t[0]]), reverse=True)[0]
-            final_label_display = (
-                display_level2_label(final["label"])
-                if final_level == "Level2"
-                else display_level1_label(final["label"])
+        # -------------------- 自愿数据分享（默认折叠） --------------------
+        with st.expander(
+            "Would you like to share your data with us to help expand the database and improve future model retraining?",
+            expanded=False
+        ):
+            st.caption(
+                "Shared data will be used for research database development and future model retraining. "
+                "Please provide a contact email so we can follow up if clarification is needed."
             )
-            st.success(
-                f"Final group result → **{final_level}: {final_label_display}**  |  "
-                f"Probability (mean for this class): **{final['prob']:.3f}**  |  "
-                f"Share: **{final['agree']}/{final['total']} ({final['share']:.0%})**"
+
+            contact_email = st.text_input(
+                "Contact email",
+                placeholder="name@example.com",
+                key="data_share_contact_email"
+            ).strip()
+
+            same_specimen = st.checkbox(
+                "I confirm all uploaded rows originate from the same physical specimen.",
+                key="same_physical_specimen"
             )
-            rows = [
-                {"Level": "Level1", "Top class": display_level1_label(l1_label), "Share": l1_share, "Mean prob": round(l1_mean, 3)},
-                {"Level": "Level2", "Top class": display_level2_label(l2_label), "Share": l2_share, "Mean prob": round(l2_mean, 3)},
-            ]
-            render_big_scroll_table(pd.DataFrame(rows), height=220, font_px=21)
 
-        # -------------------- 训练池（在直方图后，下载前） --------------------
-        st.subheader("🧩 Add Predictions to Training Pool?")
-        if st.checkbox("✅ Confirm to append these samples to the training pool for future retraining"):
-            df_save = df_input.copy()
-            df_save["Level1"] = pred1_label
-            df_save["Level2"] = pred2_label
+            if same_specimen:
+                depth = {"Level1": 1, "Level2": 2}
+                cands = [
+                    ("Level1", {
+                        "label": l1_label,
+                        "share": int(l1_share.split('/')[0]) / N,
+                        "prob": l1_mean,
+                        "agree": int(l1_share.split('/')[0]),
+                        "total": N
+                    }),
+                    ("Level2", {
+                        "label": l2_label,
+                        "share": int(l2_share.split('/')[0]) / N,
+                        "prob": l2_mean,
+                        "agree": int(l2_share.split('/')[0]),
+                        "total": N
+                    }),
+                ]
+                final_level, final = sorted(
+                    cands,
+                    key=lambda t: (t[1]["share"], t[1]["prob"], depth[t[0]]),
+                    reverse=True
+                )[0]
 
-            local_path = "training_pool.csv"
-            header_needed = not os.path.exists(local_path)
-            df_save.to_csv(local_path, mode="a", header=header_needed, index=False, encoding="utf-8-sig")
-            st.success("✅ Samples appended to local training pool.")
-
-            try:
-                GITHUB_TOKEN = (
-                    st.secrets.get("gh_token")
-                    or (st.secrets.get("github", {}) or {}).get("token")
+                final_label_display = (
+                    display_level2_label(final["label"])
+                    if final_level == "Level2"
+                    else display_level1_label(final["label"])
                 )
-                repo_owner = st.secrets.get("gh_repo_owner", "Farah-rain")
-                repo_name  = st.secrets.get("gh_repo_name",  "chromite")
-                dst_path   = st.secrets.get("gh_dst_path",   "training_pool.csv")
-                branch     = st.secrets.get("gh_branch",     "main")
 
-                if not GITHUB_TOKEN:
-                    st.info("GitHub token not configured (gh_token or github.token). Saved locally only.")
+                st.success(
+                    f"Group result → **{final_level}: {final_label_display}**  |  "
+                    f"Mean probability: **{final['prob']:.3f}**  |  "
+                    f"Share: **{final['agree']}/{final['total']} ({final['share']:.0%})**"
+                )
+
+                rows = [
+                    {
+                        "Level": "Level1",
+                        "Top class": display_level1_label(l1_label),
+                        "Share": l1_share,
+                        "Mean prob": round(l1_mean, 3)
+                    },
+                    {
+                        "Level": "Level2",
+                        "Top class": display_level2_label(l2_label),
+                        "Share": l2_share,
+                        "Mean prob": round(l2_mean, 3)
+                    },
+                ]
+                render_big_scroll_table(pd.DataFrame(rows), height=220, font_px=21)
+
+            share_consent = st.checkbox(
+                "I agree to share these uploaded data with the research database for future model retraining.",
+                key="share_training_consent"
+            )
+
+            # A deliberate submit button prevents accidental / repeated writes on ordinary Streamlit reruns.
+            if share_consent:
+                email_ok = bool(
+                    re.fullmatch(
+                        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+                        contact_email
+                    )
+                )
+
+                if not contact_email:
+                    st.info("Please enter a contact email before submitting the data.")
+                elif not email_ok:
+                    st.warning("Please enter a valid email address.")
                 else:
-                    with open(local_path, "rb") as f:
-                        content_b64 = base64.b64encode(f.read()).decode("utf-8")
-                    url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{dst_path}"
-                    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
-                    r = requests.get(url, headers=headers)
-                    sha = r.json().get("sha") if r.status_code == 200 else None
-                    payload = {"message": "update training pool", "content": content_b64, "branch": branch}
-                    if sha: payload["sha"] = sha
-                    put_resp = requests.put(url, headers=headers, json=payload)
-                    if 200 <= put_resp.status_code < 300:
-                        st.success("✅ Synced to GitHub repository.")
-                    else:
-                        st.warning(f"⚠️ GitHub sync failed ({put_resp.status_code}): {put_resp.text[:300]}")
-            except Exception as e:
-                st.error(f"❌ GitHub sync error: {e}")
+                    submit_share = st.button(
+                        "Submit data to the research database",
+                        type="primary",
+                        key="submit_shared_training_data"
+                    )
+
+                    if submit_share:
+                        df_save = df_input.copy()
+                        df_save["Level1"] = pred1_label
+                        df_save["Level2"] = pred2_label
+                        df_save["ContactEmail"] = contact_email
+                        df_save["SamePhysicalSpecimen"] = bool(same_specimen)
+                        df_save["SourceFile"] = str(getattr(uploaded_file, "name", "uploaded_file"))
+
+                        local_path = "training_pool.csv"
+                        header_needed = not os.path.exists(local_path)
+                        df_save.to_csv(
+                            local_path,
+                            mode="a",
+                            header=header_needed,
+                            index=False,
+                            encoding="utf-8-sig"
+                        )
+                        st.success("✅ Thank you. Your data have been added to the research training pool.")
+
+                        try:
+                            GITHUB_TOKEN = (
+                                st.secrets.get("gh_token")
+                                or (st.secrets.get("github", {}) or {}).get("token")
+                            )
+                            repo_owner = st.secrets.get("gh_repo_owner", "Farah-rain")
+                            repo_name  = st.secrets.get("gh_repo_name",  "chromite")
+                            dst_path   = st.secrets.get("gh_dst_path",   "training_pool.csv")
+                            branch     = st.secrets.get("gh_branch",     "main")
+
+                            if not GITHUB_TOKEN:
+                                st.info(
+                                    "GitHub token is not configured. "
+                                    "The submission was saved to the app's local training pool only."
+                                )
+                            else:
+                                with open(local_path, "rb") as f:
+                                    content_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+                                url = (
+                                    f"https://api.github.com/repos/"
+                                    f"{repo_owner}/{repo_name}/contents/{dst_path}"
+                                )
+                                headers = {
+                                    "Authorization": f"token {GITHUB_TOKEN}",
+                                    "Accept": "application/vnd.github+json"
+                                }
+
+                                r = requests.get(url, headers=headers)
+                                sha = r.json().get("sha") if r.status_code == 200 else None
+
+                                payload = {
+                                    "message": "update training pool",
+                                    "content": content_b64,
+                                    "branch": branch
+                                }
+                                if sha:
+                                    payload["sha"] = sha
+
+                                put_resp = requests.put(
+                                    url,
+                                    headers=headers,
+                                    json=payload
+                                )
+
+                                if 200 <= put_resp.status_code < 300:
+                                    st.success("✅ Shared data synchronized to the research repository.")
+                                else:
+                                    st.warning(
+                                        f"⚠️ Repository sync failed ({put_resp.status_code}): "
+                                        f"{put_resp.text[:300]}"
+                                    )
+                        except Exception as e:
+                            st.error(f"❌ Repository sync error: {e}")
 
         # -------------------- 结果下载（Prediction + Summary） --------------------
         output = BytesIO()
@@ -1348,7 +1398,7 @@ else:
 st.markdown(
     """
     <div class="footer-note">
-        Chromite Extraterrestrial Origin Classifier · Research-use classification interface
+        Chromite Provenance Classifier · Research-use classification interface
     </div>
     """,
     unsafe_allow_html=True
