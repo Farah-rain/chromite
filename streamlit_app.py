@@ -857,13 +857,16 @@ if os.path.exists(template_path):
     with open(template_path, "rb") as f:
         template_bytes = f.read()
 
-    st.download_button(
-        "📥 Download input template (Excel)",
-        data=template_bytes,
-        file_name="chromite_input_template.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="download_input_template"
-    )
+    # 右侧放置模板下载按钮，左侧留空
+    _template_spacer, _template_button_col = st.columns([0.84, 0.16])
+    with _template_button_col:
+        st.download_button(
+            "📥 Download input template (Excel)",
+            data=template_bytes,
+            file_name="chromite_input_template.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_input_template"
+        )
 else:
     st.warning(
         "Input template file not found. Please add chromite_input_template.xlsx "
