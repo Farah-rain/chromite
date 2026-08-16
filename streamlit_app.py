@@ -14,6 +14,59 @@ st.title("✨ Chromite Extraterrestrial Origin Classifier")
 # -------------------- 常量与映射（与训练一致） --------------------
 ABSTAIN_LABEL = "Unclassified"
 
+# -------------------- 网站显示标签（只改变显示，不改变旧模型内部标签） --------------------
+LEVEL1_DISPLAY_MAP = {
+    "terrestrial": "terrestrial",
+    "extraterrestrial": "extraterrestrial",
+}
+
+LEVEL2_DISPLAY_MAP = {
+    "oc": "equilibrated ordinary chondrites (EOC)",
+    "eoc": "equilibrated ordinary chondrites (EOC)",
+    "cc": "carbonaceous chondrites (CC)",
+    "a-l": "acapulcoites-lodranites (A-L)",
+    "mars": "martian meteorites",
+    "martian": "martian meteorites",
+    "martian meteorites": "martian meteorites",
+    "brachinite": "brachinites",
+    "brachinites": "brachinites",
+    "low-ti lunar": "low-Ti lunar samples",
+    "low-ti lunar sample": "low-Ti lunar samples",
+    "low-ti lunar samples": "low-Ti lunar samples",
+    "high-ti lunar": "high-Ti lunar samples",
+    "high-ti lunar sample": "high-Ti lunar samples",
+    "high-ti lunar samples": "high-Ti lunar samples",
+    "win-iab": "winonaite-IAB irons (Win-IAB)",
+    "win–iab": "winonaite-IAB irons (Win-IAB)",
+    "win-iab iron": "winonaite-IAB irons (Win-IAB)",
+    "win-iab irons": "winonaite-IAB irons (Win-IAB)",
+    "hed-mes": "HED-mesosiderites (HED-Mes)",
+    "hed-mesosiderite": "HED-mesosiderites (HED-Mes)",
+    "hed-mesosiderites": "HED-mesosiderites (HED-Mes)",
+    "merge": "HED-mesosiderites (HED-Mes)",
+    "pallasite": "pallasites",
+    "pallasites": "pallasites",
+    "unclassified": "Unclassified",
+}
+
+def display_level1_label(label):
+    if pd.isna(label):
+        return label
+    raw = str(label).strip()
+    return LEVEL1_DISPLAY_MAP.get(raw.casefold(), raw)
+
+def display_level2_label(label):
+    if pd.isna(label):
+        return label
+    raw = str(label).strip()
+    return LEVEL2_DISPLAY_MAP.get(raw.casefold(), raw)
+
+def display_level1_array(labels):
+    return np.array([display_level1_label(x) for x in labels], dtype=object)
+
+def display_level2_array(labels):
+    return np.array([display_level2_label(x) for x in labels], dtype=object)
+
 
 
 # 柔和调色板（饼图/柱状图通用）
@@ -23,6 +76,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.8, 1.6, 1.0, 0.05)
+    st.caption("Build: two-level-full-labels-v5")
 
     
     def load_model_and_metadata():
@@ -446,13 +500,13 @@ if uploaded_file is not None:
         # -------------------- 结果表 --------------------
         df_display = df_uploaded.copy().reset_index(drop=True)
         df_display.insert(0, "Index", df_display.index + 1)
-        df_display.insert(1, "Level1_Pred", pred1_label)
-        df_display.insert(2, "Level2_Pred", pred2_label)
+        df_display.insert(1, "Level1_Pred", display_level1_array(pred1_label))
+        df_display.insert(2, "Level2_Pred", display_level2_array(pred2_label))
         for i, c in enumerate(classes1):
-            df_display[f"P_Level1_{c}"] = np.round(prob1_use[:, i].astype(float), 3)
+            df_display[f"P_Level1_{display_level1_label(c)}"] = np.round(prob1_use[:, i].astype(float), 3)
 
         for i, c in enumerate(classes2):
-            df_display[f"P_Level2_{c}"] = np.round(prob2_full[:, i].astype(float), 3)
+            df_display[f"P_Level2_{display_level2_label(c)}"] = np.round(prob2_full[:, i].astype(float), 3)
 
 
       
@@ -549,11 +603,20 @@ if uploaded_file is not None:
         def _render_per_class(model, level_name, X):
             explainer = _make_explainer_cached(_model_signature(model), _model=model)
             raw_sv = explainer.shap_values(X)
-            class_names = _safe_class_names(model)
-            sv_list = _sv_to_list_per_class(raw_sv, X, class_names)
-            if not class_names or len(class_names) != len(sv_list):
-                class_names = [f"class {i}" for i in range(len(sv_list))]
-                if len(sv_list) == 2: class_names = ["negative", "positive"]
+            class_names_internal = _safe_class_names(model)
+            sv_list = _sv_to_list_per_class(raw_sv, X, class_names_internal)
+            if not class_names_internal or len(class_names_internal) != len(sv_list):
+                class_names_internal = [f"class {i}" for i in range(len(sv_list))]
+                if len(sv_list) == 2:
+                    class_names_internal = ["negative", "positive"]
+
+            # 仅替换显示名称；SHAP 数组顺序仍与模型 classes_ 完全一致
+            if level_name == "Level2":
+                class_names = [display_level2_label(x) for x in class_names_internal]
+            elif level_name == "Level1":
+                class_names = [display_level1_label(x) for x in class_names_internal]
+            else:
+                class_names = class_names_internal
             tabs = st.tabs(class_names)
             for tab, cname, arr in zip(tabs, class_names, sv_list):
                 with tab:
@@ -581,8 +644,8 @@ if uploaded_file is not None:
             return df[["Class", "count", "share"]]
 
         # L1 / L2
-        df_l1 = _vc_df_early(pred1_label).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
-        df_l2 = _vc_df_early(pred2_label).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
+        df_l1 = _vc_df_early(display_level1_array(pred1_label)).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
+        df_l2 = _vc_df_early(display_level2_array(pred2_label)).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
 
         # ===================== 📋 Classification summary (tables)  =====================
         st.subheader("📋 Classification summary (tables)")
@@ -604,8 +667,8 @@ if uploaded_file is not None:
         mask_L2  = (pred1_norm == "extraterrestrial").to_numpy()
         N_L2     = int(mask_L2.sum())
 
-        df_l1_tbl = _make_summary_from_labels(pred1_label)
-        df_l2_tbl = _make_summary_from_labels(pred2_label[mask_L2], total_n=N_L2)
+        df_l1_tbl = _make_summary_from_labels(display_level1_array(pred1_label))
+        df_l2_tbl = _make_summary_from_labels(display_level2_array(pred2_label[mask_L2]), total_n=N_L2)
 
         df_l1_tbl.insert(0, "Level", "Level1")
         df_l2_tbl.insert(0, "Level", "Level2")
@@ -636,8 +699,8 @@ if uploaded_file is not None:
             df["share"] = (df["count"] / denom).round(3)
             return df[["Class", "count", "share"]]
 
-        df_pie_l1 = _vc_df(pred1_label)
-        df_pie_l2 = _vc_df(pred2_label[mask_L2], total_n=N_L2) if N_L2 > 0 else pd.DataFrame(columns=["Class","count","share"])
+        df_pie_l1 = _vc_df(display_level1_array(pred1_label))
+        df_pie_l2 = _vc_df(display_level2_array(pred2_label[mask_L2]), total_n=N_L2) if N_L2 > 0 else pd.DataFrame(columns=["Class","count","share"])
 
         def _fmt_frac(sh: float) -> str:
             if sh >= 0.10:
@@ -770,14 +833,19 @@ if uploaded_file is not None:
                             "agree": int(l2_share.split('/')[0]), "total": N}),
             ]
             final_level, final = sorted(cands, key=lambda t: (t[1]["share"], t[1]["prob"], depth[t[0]]), reverse=True)[0]
+            final_label_display = (
+                display_level2_label(final["label"])
+                if final_level == "Level2"
+                else display_level1_label(final["label"])
+            )
             st.success(
-                f"Final group result → **{final_level}: {final['label']}**  |  "
+                f"Final group result → **{final_level}: {final_label_display}**  |  "
                 f"Probability (mean for this class): **{final['prob']:.3f}**  |  "
                 f"Share: **{final['agree']}/{final['total']} ({final['share']:.0%})**"
             )
             rows = [
-                {"Level": "Level1", "Top class": l1_label, "Share": l1_share, "Mean prob": round(l1_mean, 3)},
-                {"Level": "Level2", "Top class": l2_label, "Share": l2_share, "Mean prob": round(l2_mean, 3)},
+                {"Level": "Level1", "Top class": display_level1_label(l1_label), "Share": l1_share, "Mean prob": round(l1_mean, 3)},
+                {"Level": "Level2", "Top class": display_level2_label(l2_label), "Share": l2_share, "Mean prob": round(l2_mean, 3)},
             ]
             st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
@@ -846,3 +914,6 @@ if uploaded_file is not None:
         st.exception(e)
 else:
     st.info("Please upload a data file to proceed.")
+
+
+
