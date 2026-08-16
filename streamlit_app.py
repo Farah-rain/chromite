@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import os, joblib, requests, base64, re
 from io import BytesIO
 from itertools import chain
+from matplotlib.patches import Patch
 
 # -------------------- 页面配置 --------------------
 st.set_page_config(page_title="Chromite Provenance Classifier", layout="wide")
@@ -358,17 +359,21 @@ LEVEL2_DISPLAY_MAP = {
     "eoc": "equilibrated ordinary chondrites (EOC)",
     "cc": "carbonaceous chondrites (CC)",
     "a-l": "acapulcoites-lodranites (A-L)",
-    "mars": "martian meteorites",
-    "martian": "martian meteorites",
-    "martian meteorites": "martian meteorites",
+    "mars": "Mars",
+    "martian": "Mars",
+    "martian meteorite": "Mars",
+    "martian meteorites": "Mars",
     "brachinite": "brachinites",
     "brachinites": "brachinites",
-    "low-ti lunar": "low-Ti lunar samples",
-    "low-ti lunar sample": "low-Ti lunar samples",
-    "low-ti lunar samples": "low-Ti lunar samples",
-    "high-ti lunar": "high-Ti lunar samples",
-    "high-ti lunar sample": "high-Ti lunar samples",
-    "high-ti lunar samples": "high-Ti lunar samples",
+    "lunar": "Lunar",
+    "lunar meteorite": "Lunar",
+    "lunar meteorites": "Lunar",
+    "low-ti lunar": "low-Ti lunar",
+    "low-ti lunar sample": "low-Ti lunar",
+    "low-ti lunar samples": "low-Ti lunar",
+    "high-ti lunar": "high-Ti lunar",
+    "high-ti lunar sample": "high-Ti lunar",
+    "high-ti lunar samples": "high-Ti lunar",
     "win-iab": "winonaite-IAB irons (Win-IAB)",
     "win–iab": "winonaite-IAB irons (Win-IAB)",
     "win-iab iron": "winonaite-IAB irons (Win-IAB)",
@@ -1122,11 +1127,11 @@ if uploaded_file is not None:
 
 
         # ===== 统计图统一画布 / 字体 / 网页显示尺寸 =====
-        STATS_FIGSIZE = (5.8, 4.3)   # 四张图完全相同
+        STATS_FIGSIZE = (7.2, 4.9)   # 四张图完全相同，稍微放宽以容纳 legend
         STATS_DPI = 120
-        STATS_DISPLAY_WIDTH = 560    # 网页上四张图完全相同宽度
-        STATS_FONT = 13
-        STATS_TITLE_FONT = 15
+        STATS_DISPLAY_WIDTH = 680    # 网页上四张图完全相同宽度
+        STATS_FONT = 15
+        STATS_TITLE_FONT = 17
 
         def _stats_png_bytes(fig):
             buf = BytesIO()
@@ -1307,8 +1312,9 @@ if uploaded_file is not None:
             else:
                 render_big_scroll_table(df_l2_tbl, height=145, font_px=21)
 
-        # ===================== 🪐 Class share (pie)  =====================
-        st.subheader("🪐 Class share (pie)")
+        # ===================== 🪐 Classification distribution figures =====================
+        st.subheader("🪐 Classification distribution figures")
+        st.caption("Each panel combines a class-share pie chart, a frequency bar chart, and a color legend.")
 
         def _vc_df(labels: np.ndarray, total_n: int | None = None) -> pd.DataFrame:
             s = pd.Series(labels, dtype="object").fillna(ABSTAIN_LABEL).replace("", ABSTAIN_LABEL)
@@ -1332,13 +1338,13 @@ if uploaded_file is not None:
             else:
                 return f"{sh:.3%}"
 
-        def _pie_full(col, df: pd.DataFrame, title: str, total_n: int,
-                    small_cut: float = 0.06, tiny_cut: float = 0.02):
-            cnt_sum = 0
-            if df is not None and not df.empty:
-                cnt_sum = pd.to_numeric(df.get("count", 0), errors="coerce").fillna(0).sum()
-
+        def _combined_distribution_figure(col, df: pd.DataFrame, title: str, total_n: int,
+                                          small_cut: float = 0.06, tiny_cut: float = 0.02):
             with col:
+                cnt_sum = 0
+                if df is not None and not df.empty:
+                    cnt_sum = pd.to_numeric(df.get("count", 0), errors="coerce").fillna(0).sum()
+
                 if cnt_sum == 0 or not total_n:
                     st.info("No data")
                     return
@@ -1350,101 +1356,131 @@ if uploaded_file is not None:
                         out = df_in.copy()
                     else:
                         frac = pd.to_numeric(df_in["count"], errors="coerce").fillna(0) / float(total_n)
-                        head = df_in.loc[frac >= tiny].head(keep_top-1)
-                        tail = pd.concat([df_in.loc[frac < tiny], df_in.loc[frac >= tiny].iloc[max(keep_top-1,0):]])
+                        head = df_in.loc[frac >= tiny].head(keep_top - 1)
+                        tail = pd.concat([
+                            df_in.loc[frac < tiny],
+                            df_in.loc[frac >= tiny].iloc[max(keep_top - 1, 0):]
+                        ])
                         if len(tail) > 0:
+                            others_count = int(pd.to_numeric(tail["count"], errors="coerce").fillna(0).sum())
                             others = pd.DataFrame([{
                                 "Class": "Others",
-                                "count": int(pd.to_numeric(tail["count"], errors="coerce").fillna(0).sum()),
-                                "share": float(pd.to_numeric(tail["count"], errors="coerce").fillna(0).sum())/float(total_n)
+                                "count": others_count,
+                                "share": float(others_count) / float(total_n)
                             }])
                             out = pd.concat([head, others], ignore_index=True)
                         else:
                             out = head
                     s = float(pd.to_numeric(out["count"], errors="coerce").fillna(0).sum()) or 1.0
-                    out["share"] = pd.to_numeric(out["count"], errors="coerce").fillna(0)/s
+                    out["share"] = pd.to_numeric(out["count"], errors="coerce").fillna(0) / s
                     return out
 
                 df_plot = _collapse_others(df_in, keep_top=8, tiny=tiny_cut)
                 labels = df_plot["Class"].astype(str).tolist()
-                sizes  = pd.to_numeric(df_plot["count"], errors="coerce").fillna(0).astype(int).to_numpy()
+                counts = pd.to_numeric(df_plot["count"], errors="coerce").fillna(0).astype(int).to_numpy()
+                short_labels = [_short_chart_label(x) for x in labels]
                 colors = [PALETTE[i % len(PALETTE)] for i in range(len(labels))]
 
+                # One large panel: pie on the left, frequency bars on the right,
+                # color legend spanning the full width underneath.
+                fig = plt.figure(figsize=(10.6, 5.9))
+                gs = fig.add_gridspec(
+                    2, 2,
+                    height_ratios=[4.4, 1.25],
+                    width_ratios=[1.0, 1.32],
+                    hspace=0.18,
+                    wspace=0.32
+                )
+                ax_pie = fig.add_subplot(gs[0, 0])
+                ax_bar = fig.add_subplot(gs[0, 1])
+                ax_leg = fig.add_subplot(gs[1, :])
+                ax_leg.axis("off")
+
                 def _autopct(pct):
-                    return f"{pct:.0f}%" if (pct/100.0) >= small_cut else ""
+                    return f"{pct:.0f}%" if (pct / 100.0) >= small_cut else ""
 
-                fig = plt.figure(figsize=STATS_FIGSIZE)
-                # Level 1 类名较长，单独给右侧 legend 留出更多空间，避免文字被裁切。
-                if title.startswith("Level1"):
-                    ax = fig.add_axes([0.06, 0.16, 0.46, 0.72])
-                    legend_anchor = (0.98, 0.50)
-                else:
-                    ax = fig.add_axes([0.08, 0.16, 0.54, 0.72])
-                    legend_anchor = (1.02, 0.50)
-
-                wedges, texts, autotexts = ax.pie(
-                    sizes, startangle=110, counterclock=False,
-                    colors=colors, labels=None,
-                    autopct=_autopct, pctdistance=0.72,
-                    labeldistance=1.10,
+                ax_pie.pie(
+                    counts,
+                    startangle=110,
+                    counterclock=False,
+                    colors=colors,
+                    labels=None,
+                    autopct=_autopct,
+                    pctdistance=0.70,
                     wedgeprops=dict(linewidth=0.9, edgecolor="white"),
-                    textprops=dict(fontsize=STATS_FONT)
+                    textprops=dict(fontsize=15)
                 )
+                ax_pie.axis("equal")
+                ax_pie.set_title("Class share", fontsize=17, pad=10)
 
-                legend_labels = [f"{_short_chart_label(lab)}, {_fmt_frac(sh)}" for lab, sh in zip(df_plot["Class"], df_plot["share"])]
-                ax.legend(
-                    wedges,
-                    legend_labels,
-                    title="Class",
-                    loc="center left",
-                    bbox_to_anchor=legend_anchor,
+                x = np.arange(len(labels))
+                ax_bar.bar(x, counts, edgecolor="black", linewidth=0.8, color=colors)
+                ax_bar.set_xticks(x)
+                ax_bar.set_xticklabels(short_labels, rotation=24, ha="right", fontsize=13)
+                ax_bar.set_ylabel("Count", fontsize=15)
+                ax_bar.tick_params(axis="y", labelsize=13)
+                ax_bar.set_title("Class frequency", fontsize=17, pad=10)
+
+                ymax = max(max(counts), 1)
+                ax_bar.set_ylim(0, ymax * 1.22)
+                for i, yi in enumerate(counts):
+                    ax_bar.text(
+                        i, yi + ymax * 0.025,
+                        f"{yi}/{total_n}",
+                        ha="center", va="bottom", fontsize=12
+                    )
+
+                legend_labels = [
+                    f"{lab}: {cnt}/{total_n} ({_fmt_frac(cnt / float(total_n))})"
+                    for lab, cnt in zip(labels, counts)
+                ]
+                ncol = 2 if len(labels) <= 4 else 3
+                leg = ax_leg.legend(
+                    handles=[Patch(facecolor=c, edgecolor="none") for c in colors],
+                    labels=legend_labels,
+                    title="Color legend",
+                    loc="center",
+                    ncol=ncol,
                     frameon=False,
-                    fontsize=STATS_FONT,
-                    title_fontsize=STATS_FONT,
-                    borderaxespad=0.0
+                    fontsize=13,
+                    title_fontsize=14,
+                    columnspacing=1.6,
+                    handlelength=1.4,
+                    handletextpad=0.6,
+                    labelspacing=0.55
                 )
-                ax.axis("equal")
-                fig.suptitle(title, fontsize=STATS_TITLE_FONT, y=0.95)
+                try:
+                    leg._legend_box.align = "left"
+                except Exception:
+                    pass
 
-                _show_fixed_stats_fig(fig, title)
+                fig.suptitle(title, fontsize=19, y=0.985)
+                fig.subplots_adjust(left=0.06, right=0.97, top=0.88, bottom=0.05)
+
+                png = _stats_png_bytes(fig)
+                st.image(png, width="stretch")
+                st.download_button(
+                    "⬇️ Download PNG",
+                    png,
+                    file_name=f"{title.replace(' · ','_').replace(' ','_')}.png",
+                    mime="image/png",
+                    key=f"download_distribution_{re.sub(r'[^A-Za-z0-9]+', '_', title)}"
+                )
                 plt.close(fig)
 
-        pie_layout = st.columns([1.00, 2.85, 1.00, 2.85, 1.00], gap="small")
-        cols_pie = [pie_layout[1], pie_layout[3]]
-        _pie_full(cols_pie[0], df_pie_l1, "Level1 · class share", total_n=len(pred1_label))
-        _pie_full(cols_pie[1], df_pie_l2, "Level2 · class share (Extraterrestrial only)", total_n=(N_L2 if N_L2 > 0 else 1))
-
-        # ===================== ☄️ Class frequency (bars)  =====================
-        st.subheader("☄️ Class frequency (bars)")
-
-        def _bar_from_df(col, df: pd.DataFrame, title: str, total_n: int):
-            with col:
-                if df.empty or int(df["count"].sum() or 0) == 0:
-                    st.info("No data"); return
-                fig = plt.figure(figsize=STATS_FIGSIZE)
-                # 与饼图使用同一个固定画布；柱图绘图区也固定
-                ax = fig.add_axes([0.14, 0.20, 0.78, 0.66])
-                x = [_short_chart_label(v) for v in df["Class"].astype(str).tolist()]
-                y = df["count"].astype(int).tolist()
-                ax.bar(range(len(x)), y, edgecolor="black", color=[PALETTE[i % len(PALETTE)] for i in range(len(x))])
-                ax.set_xticks(range(len(x)))
-                ax.set_xticklabels(x, rotation=28, ha="right", fontsize=STATS_FONT)
-                ax.set_ylabel("Count", fontsize=STATS_FONT)
-                ax.tick_params(axis="both", labelsize=STATS_FONT)
-                fig.suptitle(title, fontsize=STATS_TITLE_FONT, y=0.95)
-
-                ymax = max(max(y), 1)
-                ax.set_ylim(0, ymax * 1.18)
-                for i, yi in enumerate(y):
-                    ax.text(i, yi + ymax * 0.02, f"{yi}/{total_n}", ha="center", va="bottom", fontsize=STATS_FONT)
-
-                _show_fixed_stats_fig(fig, title)
-                plt.close(fig)
-
-        bar_layout = st.columns([1.00, 2.85, 1.00, 2.85, 1.00], gap="small")
-        cols_bar = [bar_layout[1], bar_layout[3]]
-        _bar_from_df(cols_bar[0], df_pie_l1.sort_values(["count","Class"], ascending=[False,True]), "Level1 · frequency", total_n=len(pred1_label))
-        _bar_from_df(cols_bar[1], df_pie_l2.sort_values(["count","Class"], ascending=[False,True]), "Level2 · frequency (Extraterrestrial only)", total_n=N_L2 if N_L2>0 else 1)
+        combined_layout = st.columns([1, 1], gap="medium")
+        _combined_distribution_figure(
+            combined_layout[0],
+            df_pie_l1,
+            "Level 1 classification",
+            total_n=len(pred1_label)
+        )
+        _combined_distribution_figure(
+            combined_layout[1],
+            df_pie_l2,
+            "Level 2 classification (Extraterrestrial only)",
+            total_n=(N_L2 if N_L2 > 0 else 1)
+        )
 
         # -------------------- 自愿数据分享（默认折叠） --------------------
         with st.expander(
