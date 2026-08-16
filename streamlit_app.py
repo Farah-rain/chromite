@@ -384,7 +384,7 @@ LEVEL2_DISPLAY_MAP = {
     "merge": "HED-mesosiderites (HED-Mes)",
     "pallasite": "pallasites",
     "pallasites": "pallasites",
-    "unclassified": "Unclassified",
+    "unclassified": "unclassified",
 }
 
 
@@ -1249,7 +1249,11 @@ if uploaded_file is not None:
                 class_names = [display_level1_label(x) for x in class_names_internal]
             else:
                 class_names = class_names_internal
-            tabs = st.tabs(class_names)
+            # Use concise Level-2 tab labels (EOC, CC, A-L, HED-Mes, Win-IAB, etc.)
+            # while keeping the full display name available for the figure title.
+            tab_labels = ([_short_chart_label(x) for x in class_names]
+                          if level_name == "Level2" else class_names)
+            tabs = st.tabs(tab_labels)
             for tab, cname, arr in zip(tabs, class_names, sv_list):
                 with tab:
                     if chart_kind.startswith("Bar"):
@@ -1280,8 +1284,10 @@ if uploaded_file is not None:
         X_map = {"Level1": df_input_L1, "Level2": df_input_L2}
         for col, (mdl, nm) in zip(cols_shap, [(model_lvl1, "Level1"), (model_lvl2, "Level2")]):
             with col:
-                st.markdown(f"#### 🔍 {nm} (per class)")
-                _render_per_class(mdl, nm, X_map[nm])
+                # A light card border separates the two analysis panels without adding a distracting background color.
+                with st.container(border=True):
+                    st.markdown(f"#### 🔍 {nm} (per class)")
+                    _render_per_class(mdl, nm, X_map[nm])
 
         # >>> NEW: 预计算 summary（Level1 / Level2）
         # =======================================================================
