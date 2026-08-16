@@ -207,25 +207,6 @@ div[data-testid="stExpander"] details[open] > summary {
 }
 
 
-/* input template download box */
-.template-box {
-    border: 1px solid #cbdcf0;
-    background: #f3f8fe;
-    border-radius: 12px;
-    padding: 14px 18px;
-    margin: 8px 0 12px 0;
-}
-.template-box .template-title {
-    font-size: 20px;
-    font-weight: 700;
-    color: #245b8f;
-    margin-bottom: 4px;
-}
-.template-box .template-note {
-    font-size: 16px;
-    color: #5d6875;
-    line-height: 1.45;
-}
 
 </style>
 """, unsafe_allow_html=True)
@@ -328,7 +309,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: input-template-v34")
+    st.caption("Build: level1-pie-legend-fix-v37")
 
     
     def load_model_and_metadata():
@@ -801,19 +782,6 @@ def level_group_stats(labels, classes, prob_by_class, p_max=None, p_unknown=None
     return top_label, top_share_str, top_mean_prob
 
 # -------------------- 输入模板下载 --------------------
-st.markdown(
-    """
-    <div class="template-box">
-        <div class="template-title">📥 Input data template</div>
-        <div class="template-note">
-            Download the Excel template, enter one chromite analysis per row, and upload the completed file below.
-            Please keep the original column headers unchanged.
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
 template_path = "chromite_input_template.xlsx"
 if os.path.exists(template_path):
     with open(template_path, "rb") as f:
@@ -935,13 +903,13 @@ if uploaded_file is not None:
         df_display["L2_TopMeanProb"] = round(l2_mean, 3)
 
         # -------------------- Compact prediction table --------------------
-        st.subheader("🧾 Predictions")
+        st.subheader("🧾 Prediction Results")
         df_preview = pd.DataFrame({
             "Index": df_display["Index"],
-            "Level1_Pred": df_display["Level1_Pred"],
-            "Level1_confidence": np.round(p1max, 3),
-            "Level2_Pred": df_display["Level2_Pred"],
-            "Level2_confidence": np.round(p2max, 3),
+            "Level 1 prediction": df_display["Level1_Pred"],
+            "Level 1 predicted probability": np.round(p1max, 3),
+            "Level 2 prediction": df_display["Level2_Pred"],
+            "Level 2 predicted probability": np.round(p2max, 3),
         })
         render_big_scroll_table(df_preview, height=320, font_px=21)
 
@@ -1248,8 +1216,14 @@ if uploaded_file is not None:
                     return f"{pct:.0f}%" if (pct/100.0) >= small_cut else ""
 
                 fig = plt.figure(figsize=STATS_FIGSIZE)
-                # 固定饼图绘图区；legend 放在同一固定画布内，不改变图片尺寸
-                ax = fig.add_axes([0.08, 0.16, 0.54, 0.72])
+                # Level 1 类名较长，单独给右侧 legend 留出更多空间，避免文字被裁切。
+                if title.startswith("Level1"):
+                    ax = fig.add_axes([0.06, 0.16, 0.46, 0.72])
+                    legend_anchor = (0.98, 0.50)
+                else:
+                    ax = fig.add_axes([0.08, 0.16, 0.54, 0.72])
+                    legend_anchor = (1.02, 0.50)
+
                 wedges, texts, autotexts = ax.pie(
                     sizes, startangle=110, counterclock=False,
                     colors=colors, labels=None,
@@ -1259,13 +1233,13 @@ if uploaded_file is not None:
                     textprops=dict(fontsize=STATS_FONT)
                 )
 
-                legend_labels = [f"{_short_chart_label(lab)}, {_fmt_frac(sh)}" for lab, sh in zip(df_in["Class"], df_in["share"])]
+                legend_labels = [f"{_short_chart_label(lab)}, {_fmt_frac(sh)}" for lab, sh in zip(df_plot["Class"], df_plot["share"])]
                 ax.legend(
                     wedges,
                     legend_labels,
                     title="Class",
                     loc="center left",
-                    bbox_to_anchor=(1.02, 0.50),
+                    bbox_to_anchor=legend_anchor,
                     frameon=False,
                     fontsize=STATS_FONT,
                     title_fontsize=STATS_FONT,
