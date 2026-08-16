@@ -122,10 +122,53 @@ div[data-testid="stMarkdownContainer"] h4 {
     font-size: 15px;
     line-height: 1.35;
 }
+/* ---------- highlighted expandable feature panels ---------- */
 div[data-testid="stExpander"] {
-    border: 1px solid #e5eaf0 !important;
-    border-radius: 10px !important;
-    background: #fbfcfe !important;
+    border: 1px solid #bdd5ef !important;
+    border-radius: 12px !important;
+    background: #f8fbff !important;
+    overflow: hidden !important;
+    margin-top: 8px !important;
+    margin-bottom: 12px !important;
+}
+
+/* expander header */
+div[data-testid="stExpander"] details > summary {
+    background: #eaf4ff !important;
+    border-radius: 11px !important;
+    padding: 13px 18px !important;
+    min-height: 54px !important;
+    transition: background-color 0.18s ease, border-color 0.18s ease;
+}
+
+/* subtle hover */
+div[data-testid="stExpander"] details > summary:hover {
+    background: #dceeff !important;
+}
+
+/* center the header content */
+div[data-testid="stExpander"] details > summary > div {
+    width: 100% !important;
+    justify-content: center !important;
+    align-items: center !important;
+}
+
+/* larger centered expander text */
+div[data-testid="stExpander"] details > summary p {
+    width: 100% !important;
+    margin: 0 !important;
+    text-align: center !important;
+    font-size: 22px !important;
+    font-weight: 700 !important;
+    line-height: 1.35 !important;
+    color: #245b8f !important;
+}
+
+/* keep the open-panel body clean */
+div[data-testid="stExpander"] details[open] > summary {
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+    border-bottom: 1px solid #d4e4f5 !important;
 }
 .footer-note {
     color: #8a93a0;
@@ -244,7 +287,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: share-data-panel-v31")
+    st.caption("Build: blue-expanders-v32")
 
     
     def load_model_and_metadata():
@@ -829,7 +872,7 @@ if uploaded_file is not None:
         })
         render_big_scroll_table(df_preview, height=320, font_px=21)
 
-        with st.expander("Show full analytical details and class probabilities", expanded=False):
+        with st.expander("📊 Show full analytical details and class probabilities", expanded=False):
             render_big_scroll_table(df_display, height=430, font_px=19)
 
         # -------------------- SHAP：tabs 横向滚动 + 两列并排 --------------------
@@ -1200,7 +1243,7 @@ if uploaded_file is not None:
 
         # -------------------- 自愿数据分享（默认折叠） --------------------
         with st.expander(
-            "Would you like to share your data with us to help expand the database and improve future model retraining?",
+            "🤝 Would you like to share your data with us to help expand the database and improve future model retraining?",
             expanded=False
         ):
             st.caption(
