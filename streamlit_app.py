@@ -206,6 +206,27 @@ div[data-testid="stExpander"] details[open] > summary {
     font-size: 27px !important;
 }
 
+
+/* input template download box */
+.template-box {
+    border: 1px solid #cbdcf0;
+    background: #f3f8fe;
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin: 8px 0 12px 0;
+}
+.template-box .template-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #245b8f;
+    margin-bottom: 4px;
+}
+.template-box .template-note {
+    font-size: 16px;
+    color: #5d6875;
+    line-height: 1.45;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -307,7 +328,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: centered-expanders-v33")
+    st.caption("Build: input-template-v34")
 
     
     def load_model_and_metadata():
@@ -778,6 +799,38 @@ def level_group_stats(labels, classes, prob_by_class, p_max=None, p_unknown=None
     top_share_str = f"{int(counts[top_label])}/{N}"
     top_mean_prob = means.get(top_label, 0.0)
     return top_label, top_share_str, top_mean_prob
+
+# -------------------- 输入模板下载 --------------------
+st.markdown(
+    """
+    <div class="template-box">
+        <div class="template-title">📥 Input data template</div>
+        <div class="template-note">
+            Download the Excel template, enter one chromite analysis per row, and upload the completed file below.
+            Please keep the original column headers unchanged.
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+template_path = "chromite_input_template.xlsx"
+if os.path.exists(template_path):
+    with open(template_path, "rb") as f:
+        template_bytes = f.read()
+
+    st.download_button(
+        "📥 Download input template (Excel)",
+        data=template_bytes,
+        file_name="chromite_input_template.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="download_input_template"
+    )
+else:
+    st.warning(
+        "Input template file not found. Please add chromite_input_template.xlsx "
+        "to the same repository folder as streamlit_app.py."
+    )
 
 # -------------------- 上传文件并处理 --------------------
 uploaded_file = st.file_uploader(
@@ -1466,4 +1519,3 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
