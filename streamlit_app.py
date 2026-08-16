@@ -11,7 +11,7 @@ from itertools import chain
 # -------------------- 页面配置 --------------------
 st.set_page_config(page_title="Chromite Provenance Classifier", layout="wide")
 def render_hero_banner():
-    hero_path = "chromite_space_header.jpg" if os.path.exists("chromite_space_header.jpg") else None
+    hero_path = "chromite_space_banner.png" if os.path.exists("chromite_space_banner.png") else None
 
     if hero_path:
         with open(hero_path, "rb") as f:
@@ -20,12 +20,10 @@ def render_hero_banner():
         st.markdown(
             f"""
             <div class="hero-banner-wrap"
-                 style="background-image:
-                        linear-gradient(90deg, rgba(2,12,28,0.74) 0%, rgba(2,12,28,0.48) 48%, rgba(2,12,28,0.18) 100%),
-                        url('data:image/jpeg;base64,{hero_b64}');">
-                <div class="hero-content">
-                    <div class="hero-title">Chromite Provenance Classifier</div>
-                    <div class="hero-subtitle">
+                 style="background-image: url('data:image/png;base64,{hero_b64}');">
+                <div class="hero-copy">
+                    <div class="hero-banner-title">Chromite Provenance Classifier</div>
+                    <div class="hero-banner-subtitle">
                         Machine-learning classification of chromite compositions for terrestrial–extraterrestrial provenance and extraterrestrial subclass attribution.
                     </div>
                 </div>
@@ -34,67 +32,70 @@ def render_hero_banner():
             unsafe_allow_html=True
         )
     else:
-        st.title("✨ Chromite Provenance Classifier")
-        st.markdown(
-            """
-            <div class="hero-subtitle-fallback">
-                Machine-learning classification of chromite compositions for terrestrial–extraterrestrial provenance and extraterrestrial subclass attribution.
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        st.error("Hero background image not found: chromite_space_banner.png")
 
 # -------------------- 网页字体 --------------------
 st.markdown("""
 <style>
 
-/* ---------- compact research hero ---------- */
+/* ---------- hero banner ---------- */
 .hero-banner-wrap {
     width: 100%;
-    min-height: 255px;
-    margin: 6px 0 18px 0;
+    height: clamp(210px, 13vw, 300px);
+    margin: 6px 0 14px 0;
     border-radius: 18px;
+    box-shadow: 0 8px 28px rgba(12, 24, 48, 0.22);
     background-size: cover;
     background-position: center center;
     background-repeat: no-repeat;
-    box-shadow: 0 8px 28px rgba(12, 24, 48, 0.20);
     display: flex;
     align-items: center;
     overflow: hidden;
 }
-.hero-content {
-    max-width: 980px;
-    padding: 38px 58px;
+
+.hero-copy {
+    width: 100%;
+    padding: 0 3.2vw;
+    box-sizing: border-box;
+    color: #ffffff;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.62);
 }
-.hero-title {
-    color: #ffffff !important;
+
+.hero-banner-title {
+    margin: 0 0 12px 0;
     font-family: Georgia, "Times New Roman", serif;
-    font-size: clamp(34px, 3.6vw, 58px);
+    font-size: clamp(30px, 2.7vw, 58px);
     font-weight: 700;
-    line-height: 1.08;
-    letter-spacing: 0.2px;
-    text-shadow: 0 2px 10px rgba(0,0,0,0.30);
+    line-height: 1.05;
+    color: #ffffff;
+    white-space: nowrap;
 }
-.hero-subtitle {
-    margin-top: 16px;
-    max-width: 900px;
-    color: rgba(255,255,255,0.90) !important;
-    font-size: clamp(16px, 1.35vw, 22px) !important;
-    line-height: 1.45;
-    text-shadow: 0 1px 8px rgba(0,0,0,0.32);
+
+.hero-banner-subtitle {
+    margin: 0;
+    font-size: clamp(13px, 1.05vw, 21px);
+    font-weight: 500;
+    line-height: 1.25;
+    color: rgba(255, 255, 255, 0.94);
+    white-space: nowrap;
 }
-.hero-subtitle-fallback {
-    font-size: 18px;
-    color: #5b6472;
-    margin-bottom: 12px;
-}
-@media (max-width: 900px) {
-    .hero-banner-wrap {
-        min-height: 220px;
-        background-position: 58% center;
+
+/* Keep both hero lines on one row while scaling down on narrower screens */
+@media (max-width: 1200px) {
+    .hero-banner-title {
+        font-size: 34px;
     }
-    .hero-content {
-        padding: 28px 30px;
+    .hero-banner-subtitle {
+        font-size: 13px;
+    }
+}
+
+@media (max-width: 900px) {
+    .hero-banner-title {
+        font-size: 26px;
+    }
+    .hero-banner-subtitle {
+        font-size: 10px;
     }
 }
 
@@ -378,7 +379,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: compact-hero-v40")
+    st.caption("Build: single-line-hero-v40")
 
     
     def load_model_and_metadata():
