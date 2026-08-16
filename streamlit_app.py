@@ -379,10 +379,9 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: staged-upload-v41")
+    st.caption("Build: single-line-hero-v40")
 
     
-    @st.cache_resource
     def load_model_and_metadata():
         def _load(p1, p2): return joblib.load(p1) if os.path.exists(p1) else joblib.load(p2)
         model_lvl1 = _load("models/model_level1.pkl", "model_level1.pkl")
@@ -408,7 +407,6 @@ with st.sidebar:
         st.exception(e)
 
 # 载入校准器 & 类阈值（若存在）
-@st.cache_resource
 def _load_joblib_pair(primary_path, fallback_path):
     p = primary_path if os.path.exists(primary_path) else fallback_path
     return joblib.load(p) if os.path.exists(p) else None
@@ -891,28 +889,10 @@ else:
 
 # -------------------- 上传文件并处理 --------------------
 uploaded_file = st.file_uploader(
-    "Upload an Excel or CSV file (please replace your FeO with FeOT, If you did not measure FeO and Fe2O3 separately).",
-    type=["xlsx", "csv"],
-    key="chromite_data_uploader"
+    "Upload an Excel or CSV file (please replace your FeO with FeOT, If you did not measure FeO and Fe2O3 separately).", type=["xlsx", "csv"]
 )
 
 if uploaded_file is not None:
-    # Stage 1: confirm that Streamlit has actually received the file before any model/SHAP work starts.
-    file_signature = f"{uploaded_file.name}:{getattr(uploaded_file, 'size', 0)}"
-    if st.session_state.get("active_upload_signature") != file_signature:
-        st.session_state["active_upload_signature"] = file_signature
-        st.session_state["classification_requested"] = False
-
-    file_size_kb = float(getattr(uploaded_file, "size", 0)) / 1024.0
-    st.success(f"✅ File uploaded successfully: {uploaded_file.name} ({file_size_kb:.1f} KB)")
-
-    if st.button("▶ Run classification", type="primary", key="run_classification_button"):
-        st.session_state["classification_requested"] = True
-
-    if not st.session_state.get("classification_requested", False):
-        st.info("The file has been received. Click **Run classification** to start preprocessing, prediction, and SHAP analysis.")
-        st.stop()
-
     try:
         df_uploaded = (pd.read_csv(uploaded_file) if uploaded_file.name.lower().endswith(".csv")
                        else pd.read_excel(uploaded_file))
