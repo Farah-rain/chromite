@@ -514,7 +514,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: compact-shap-larger-filename-v45")
+    st.caption("Build: compact-shap-larger-filename-v45-TEMP-6DP")
 
     
     @st.cache_resource
@@ -706,7 +706,7 @@ def _short_chart_label(label):
     return raw
 
 
-def _round_float_columns(df: pd.DataFrame, decimals: int = 3) -> pd.DataFrame:
+def _round_float_columns(df: pd.DataFrame, decimals: int = 6) -> pd.DataFrame:
     """Round floating-point columns while preserving integer/text columns."""
     out = df.copy()
     for col in out.columns:
@@ -715,7 +715,7 @@ def _round_float_columns(df: pd.DataFrame, decimals: int = 3) -> pd.DataFrame:
     return out
 
 
-def _format_table_for_html(df: pd.DataFrame, decimals: int = 3) -> pd.DataFrame:
+def _format_table_for_html(df: pd.DataFrame, decimals: int = 6) -> pd.DataFrame:
     """Format float columns to fixed decimals for website display."""
     out = df.copy()
     for col in out.columns:
@@ -732,7 +732,7 @@ def render_big_scroll_table(df: pd.DataFrame, height: int = 430, font_px: int = 
         st.info("No data")
         return
 
-    df_html = _format_table_for_html(df, decimals=3)
+    df_html = _format_table_for_html(df, decimals=6)
 
     html_table = df_html.to_html(
         index=False,
@@ -1111,10 +1111,10 @@ if uploaded_file is not None:
         df_display.insert(1, "Level1_Pred", display_level1_array(pred1_label))
         df_display.insert(2, "Level2_Pred", display_level2_array(pred2_label))
         for i, c in enumerate(classes1):
-            df_display[f"P_Level1_{display_level1_label(c)}"] = np.round(prob1_use[:, i].astype(float), 3)
+            df_display[f"P_Level1_{display_level1_label(c)}"] = np.round(prob1_use[:, i].astype(float), 6)
 
         for i, c in enumerate(classes2):
-            df_display[f"P_Level2_{display_level2_label(c)}"] = np.round(prob2_full[:, i].astype(float), 3)
+            df_display[f"P_Level2_{display_level2_label(c)}"] = np.round(prob2_full[:, i].astype(float), 6)
 
         # 组内多数票 + 均值概率（先计算，让主要结果出现在大表之前）
         l1_label, l1_share, l1_mean = level_group_stats(
@@ -1128,18 +1128,18 @@ if uploaded_file is not None:
         )
 
         df_display["L1_TopShare"]    = l1_share
-        df_display["L1_TopMeanProb"] = round(l1_mean, 3)
+        df_display["L1_TopMeanProb"] = round(l1_mean, 6)
         df_display["L2_TopShare"]    = l2_share
-        df_display["L2_TopMeanProb"] = round(l2_mean, 3)
+        df_display["L2_TopMeanProb"] = round(l2_mean, 6)
 
         # -------------------- Compact prediction table --------------------
         st.subheader("🧾 Prediction Results")
         df_preview = pd.DataFrame({
             "Index": df_display["Index"],
             "Level 1 prediction": df_display["Level1_Pred"],
-            "Level 1 predicted probability": np.round(p1max, 3),
+            "Level 1 predicted probability": np.round(p1max, 6),
             "Level 2 prediction": df_display["Level2_Pred"],
-            "Level 2 predicted probability": np.round(p2max, 3),
+            "Level 2 predicted probability": np.round(p2max, 6),
         })
         render_big_scroll_table(df_preview, height=320, font_px=21)
 
@@ -1647,7 +1647,7 @@ if uploaded_file is not None:
 
                 st.success(
                     f"Group result → **{final_level}: {final_label_display}**  |  "
-                    f"Mean probability: **{final['prob']:.3f}**  |  "
+                    f"Mean probability: **{final['prob']:.6f}**  |  "
                     f"Share: **{final['agree']}/{final['total']} ({final['share']:.0%})**"
                 )
 
@@ -1656,13 +1656,13 @@ if uploaded_file is not None:
                         "Level": "Level1",
                         "Top class": display_level1_label(l1_label),
                         "Share": l1_share,
-                        "Mean prob": round(l1_mean, 3)
+                        "Mean prob": round(l1_mean, 6)
                     },
                     {
                         "Level": "Level2",
                         "Top class": display_level2_label(l2_label),
                         "Share": l2_share,
-                        "Mean prob": round(l2_mean, 3)
+                        "Mean prob": round(l2_mean, 6)
                     },
                 ]
                 render_big_scroll_table(pd.DataFrame(rows), height=220, font_px=21)
@@ -1770,13 +1770,13 @@ if uploaded_file is not None:
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             # 预测页（包含 OOD 列）
-            _round_float_columns(df_display, 3).to_excel(writer, index=False, sheet_name='Prediction')
+            _round_float_columns(df_display, 6).to_excel(writer, index=False, sheet_name='Prediction')
 
             # 导出 Level1 / Level2 汇总
             df_l1_export = df_l1.copy(); df_l1_export.insert(0, "Level", "Level1")
             df_l2_export = df_l2.copy(); df_l2_export.insert(0, "Level", "Level2")
-            _round_float_columns(df_l1_export, 3).to_excel(writer, index=False, sheet_name='Summary_L1')
-            _round_float_columns(df_l2_export, 3).to_excel(writer, index=False, sheet_name='Summary_L2')
+            _round_float_columns(df_l1_export, 6).to_excel(writer, index=False, sheet_name='Summary_L1')
+            _round_float_columns(df_l2_export, 6).to_excel(writer, index=False, sheet_name='Summary_L2')
 
         with download_predictions_placeholder:
             st.download_button(
