@@ -470,16 +470,42 @@ div[data-testid="stFileUploader"] section button[aria-label*="clear" i] {
     min-width: 120px !important;
 }
 
-/* ---------- right-align all download controls (Excel and PNG) ---------- */
-.stDownloadButton,
+/* ---------- right-align download controls ---------- */
+/* Generic fallback for Streamlit download buttons. */
 div[data-testid="stDownloadButton"] {
     width: 100% !important;
     display: flex !important;
     justify-content: flex-end !important;
+    text-align: right !important;
 }
-.stDownloadButton > div,
 div[data-testid="stDownloadButton"] > div {
     width: auto !important;
+    margin-left: auto !important;
+}
+
+/* Explicit hooks for the main download buttons: these are more reliable than
+   the generic selector across Streamlit versions. */
+.st-key-download_input_template,
+.st-key-download_predictions_excel,
+.st-key-download_distribution_level1,
+.st-key-download_distribution_level2 {
+    width: 100% !important;
+    display: flex !important;
+    justify-content: flex-end !important;
+    text-align: right !important;
+}
+.st-key-download_input_template > div,
+.st-key-download_predictions_excel > div,
+.st-key-download_distribution_level1 > div,
+.st-key-download_distribution_level2 > div {
+    width: auto !important;
+    margin-left: auto !important;
+}
+.st-key-download_input_template button,
+.st-key-download_predictions_excel button,
+.st-key-download_distribution_level1 button,
+.st-key-download_distribution_level2 button {
+    margin-left: auto !important;
 }
 
 
@@ -1324,6 +1350,7 @@ if uploaded_file is not None:
                 return f"{sh:.3%}"
 
         def _combined_distribution_figure(col, df: pd.DataFrame, title: str, total_n: int,
+                                          download_key: str,
                                           small_cut: float = 0.06, tiny_cut: float = 0.02):
             with col:
                 cnt_sum = 0
@@ -1457,7 +1484,7 @@ if uploaded_file is not None:
                     png,
                     file_name=f"{title.replace(' · ','_').replace(' ','_')}.png",
                     mime="image/png",
-                    key=f"download_distribution_{re.sub(r'[^A-Za-z0-9]+', '_', title)}"
+                    key=download_key
                 )
                 plt.close(fig)
 
@@ -1466,13 +1493,15 @@ if uploaded_file is not None:
             combined_layout[0],
             df_pie_l1,
             "Level 1 classification",
-            total_n=len(pred1_label)
+            total_n=len(pred1_label),
+            download_key="download_distribution_level1"
         )
         _combined_distribution_figure(
             combined_layout[1],
             df_pie_l2,
             "Level 2 classification (Extraterrestrial only)",
-            total_n=(N_L2 if N_L2 > 0 else 1)
+            total_n=(N_L2 if N_L2 > 0 else 1),
+            download_key="download_distribution_level2"
         )
 
         # -------------------- SHAP：tabs 横向滚动 + 两列并排 --------------------
