@@ -39,6 +39,11 @@ def render_hero_banner():
 st.markdown("""
 <style>
 
+/* Global 75% typography scaling for Streamlit components that use rem/em units. */
+html {
+    font-size: 75% !important;
+}
+
 /* ---------- hero banner ---------- */
 .hero-banner-wrap {
     width: 100%;
@@ -65,7 +70,7 @@ st.markdown("""
 .hero-banner-title {
     margin: 0 0 12px 0;
     font-family: Georgia, "Times New Roman", serif;
-    font-size: clamp(30px, 2.7vw, 58px);
+    font-size: clamp(22.5px, 2.025vw, 43.5px);
     font-weight: 700;
     line-height: 1.05;
     color: #ffffff;
@@ -74,7 +79,7 @@ st.markdown("""
 
 .hero-banner-subtitle {
     margin: 0;
-    font-size: clamp(13px, 1.05vw, 21px);
+    font-size: clamp(9.75px, 0.7875vw, 15.75px);
     font-weight: 500;
     line-height: 1.25;
     color: rgba(255, 255, 255, 0.94);
@@ -84,19 +89,19 @@ st.markdown("""
 /* Keep both hero lines on one row while scaling down on narrower screens */
 @media (max-width: 1200px) {
     .hero-banner-title {
-        font-size: 34px;
+        font-size: 25.5px;
     }
     .hero-banner-subtitle {
-        font-size: 13px;
+        font-size: 9.75px;
     }
 }
 
 @media (max-width: 900px) {
     .hero-banner-title {
-        font-size: 26px;
+        font-size: 19.5px;
     }
     .hero-banner-subtitle {
-        font-size: 10px;
+        font-size: 7.5px;
     }
 }
 
@@ -111,20 +116,20 @@ st.markdown("""
 .stTabs [data-baseweb="tab"],
 .stRadio label,
 .stRadio [role="radiogroup"] label p {
-    font-size: 24px !important;
+    font-size: 18px !important;
 }
 
 /* Main section headings (Prediction Results, SHAP, summary, distribution, etc.) */
 h3,
 div[data-testid="stMarkdownContainer"] h3,
 [data-testid="stHeadingWithActionElements"] h3 {
-    font-size: 36px !important;
+    font-size: 27px !important;
     line-height: 1.22 !important;
 }
 
 /* Level1 / Level2 (per class) */
 div[data-testid="stMarkdownContainer"] h4 {
-    font-size: 34px !important;
+    font-size: 25.5px !important;
     line-height: 1.22 !important;
 }
 
@@ -132,11 +137,11 @@ div[data-testid="stMarkdownContainer"] h4 {
 [data-testid="stFileUploader"] button,
 [data-testid="stFileUploader"] small,
 [data-testid="stFileUploader"] span {
-    font-size: 24px !important;
+    font-size: 18px !important;
 }
 [data-testid="stFileUploader"] > label,
 [data-testid="stFileUploader"] > label p {
-    font-size: 23px !important;
+    font-size: 17.25px !important;
 }
 
 
@@ -144,7 +149,7 @@ div[data-testid="stMarkdownContainer"] h4 {
 [data-testid="stCheckbox"] label,
 [data-testid="stCheckbox"] label p,
 [data-testid="stCheckbox"] span {
-    font-size: 24px !important;
+    font-size: 18px !important;
 }
 
 /* larger download / normal buttons */
@@ -152,13 +157,13 @@ div[data-testid="stMarkdownContainer"] h4 {
 .stDownloadButton button p,
 .stButton button,
 .stButton button p {
-    font-size: 20px !important;
+    font-size: 15px !important;
 }
 
 
 [data-testid="stDownloadButton"] button,
 [data-testid="stDownloadButton"] button p {
-    font-size: 20px !important;
+    font-size: 15px !important;
 }
 
 
@@ -170,7 +175,7 @@ div[data-testid="stMarkdownContainer"] h4 {
     border-radius: 999px;
     background: #f7f9fc;
     color: #354052;
-    font-size: 15px;
+    font-size: 11.25px;
     font-weight: 600;
 }
 .result-card {
@@ -182,7 +187,7 @@ div[data-testid="stMarkdownContainer"] h4 {
 }
 .result-card .card-label {
     color: #6a7380;
-    font-size: 14px;
+    font-size: 10.5px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -190,14 +195,14 @@ div[data-testid="stMarkdownContainer"] h4 {
 }
 .result-card .card-value {
     color: #1f2937;
-    font-size: 22px;
+    font-size: 16.5px;
     font-weight: 700;
     line-height: 1.25;
     margin-bottom: 7px;
 }
 .result-card .card-meta {
     color: #697386;
-    font-size: 15px;
+    font-size: 11.25px;
     line-height: 1.35;
 }
 /* ---------- highlighted expandable feature panels ---------- */
@@ -244,7 +249,7 @@ div[data-testid="stExpander"] details > summary > span {
     justify-content: center !important;
     margin: 0 !important;
     text-align: center !important;
-    font-size: 26px !important;
+    font-size: 19.5px !important;
     font-weight: 700 !important;
     line-height: 1.30 !important;
     color: #245b8f !important;
@@ -256,7 +261,7 @@ div[data-testid="stExpander"] details > summary p {
     margin: 0 !important;
     padding: 0 !important;
     text-align: center !important;
-    font-size: 26px !important;
+    font-size: 19.5px !important;
     font-weight: 700 !important;
     line-height: 1.30 !important;
     color: #245b8f !important;
@@ -275,7 +280,7 @@ div[data-testid="stExpander"] details > summary::after {
     transform: translateY(-50%) !important;
     transform-origin: center !important;
     font-family: Arial, sans-serif !important;
-    font-size: 30px !important;
+    font-size: 22.5px !important;
     font-weight: 700 !important;
     line-height: 1 !important;
     color: #245b8f !important;
@@ -315,14 +320,14 @@ div[data-testid="stFileUploader"] button {
 div[data-testid="stFileUploader"] button,
 div[data-testid="stFileUploader"] button p,
 div[data-testid="stFileUploader"] button span {
-    font-size: 20px !important;
+    font-size: 15px !important;
     line-height: 1.2 !important;
 }
 
 /* File-type / size hint */
 div[data-testid="stFileUploader"] small,
 div[data-testid="stFileUploader"] section > div > span {
-    font-size: 19px !important;
+    font-size: 14.25px !important;
 }
 
 /* IMPORTANT: do not hide uploader SVGs. The X/remove-file control is an SVG button. */
@@ -357,7 +362,7 @@ div[data-testid="stFileUploader"] section div:has(button[aria-label*="delete" i]
 div[data-testid="stFileUploader"] section div:has(button[aria-label*="delete" i]) span,
 div[data-testid="stFileUploader"] section div:has(button[aria-label*="clear" i]) p,
 div[data-testid="stFileUploader"] section div:has(button[aria-label*="clear" i]) span {
-    font-size: 22px !important;
+    font-size: 16.5px !important;
     line-height: 1.22 !important;
     font-weight: 500 !important;
 }
@@ -369,14 +374,14 @@ div[data-testid="stFileUploader"] [title$=".csv" i],
 div[data-testid="stFileUploader"] [aria-label$=".xlsx" i],
 div[data-testid="stFileUploader"] [aria-label$=".xls" i],
 div[data-testid="stFileUploader"] [aria-label$=".csv" i] {
-    font-size: 22px !important;
+    font-size: 16.5px !important;
     line-height: 1.22 !important;
     font-weight: 500 !important;
 }
 
 /* File size should remain secondary, not become as large as the filename. */
 div[data-testid="stFileUploader"] section small {
-    font-size: 14px !important;
+    font-size: 10.5px !important;
     line-height: 1.15 !important;
     font-weight: 400 !important;
 }
@@ -391,7 +396,7 @@ div[data-testid="stFileUploader"] section button[aria-label*="clear" i] {
 
 .footer-note {
     color: #8a93a0;
-    font-size: 13px;
+    font-size: 9.75px;
     text-align: center;
     padding: 18px 0 8px 0;
 }
@@ -402,7 +407,7 @@ div[data-testid="stFileUploader"] section button[aria-label*="clear" i] {
 .stTabs [data-baseweb="tab"] span,
 .stTabs [role="tab"] p,
 .stTabs [role="tab"] span {
-    font-size: 27px !important;
+    font-size: 20.25px !important;
 }
 
 
@@ -413,6 +418,8 @@ div[data-testid="stFileUploader"] section button[aria-label*="clear" i] {
 render_hero_banner()
 
 # -------------------- 常量与映射（与训练一致） --------------------
+FONT_SCALE = 0.75  # 全站字体统一缩放为原来的 75%
+MAX_UPLOAD_MB = 200
 ABSTAIN_LABEL = "Unclassified"
 
 # -------------------- 网站显示标签（只改变显示，不改变旧模型内部标签） --------------------
@@ -728,6 +735,7 @@ def _format_table_for_html(df: pd.DataFrame, decimals: int = 6) -> pd.DataFrame:
 
 def render_big_scroll_table(df: pd.DataFrame, height: int = 430, font_px: int = 21):
     """Render a real scrollable HTML table with controllable font size."""
+    font_px = max(8, int(round(font_px * FONT_SCALE)))
     if df is None or df.empty:
         st.info("No data")
         return
@@ -1026,14 +1034,20 @@ else:
 
 # -------------------- 上传文件并处理 --------------------
 uploaded_file = st.file_uploader(
-    "Upload an Excel or CSV file (please replace your FeO with FeOT, If you did not measure FeO and Fe2O3 separately).",
+    "Upload an Excel or CSV file (maximum 200 MB per file; please replace your FeO with FeOT if you did not measure FeO and Fe2O3 separately).",
     type=["xlsx", "csv"],
     key="chromite_data_uploader"
 )
 
 if uploaded_file is not None:
+    # Hard safety check: keep the application limit at 200 MB even if deployment config changes.
+    file_size_bytes = int(getattr(uploaded_file, "size", 0) or 0)
+    if file_size_bytes > MAX_UPLOAD_MB * 1024 * 1024:
+        st.error(f"❌ File is too large. Maximum allowed size is {MAX_UPLOAD_MB} MB per file.")
+        st.stop()
+
     # Process immediately after a file is selected; no extra "Run classification" click is required.
-    file_size_kb = float(getattr(uploaded_file, "size", 0)) / 1024.0
+    file_size_kb = file_size_bytes / 1024.0
     st.success(f"✅ File uploaded successfully: {uploaded_file.name} ({file_size_kb:.1f} KB)")
 
     try:
@@ -1150,212 +1164,6 @@ if uploaded_file is not None:
         with st.expander("Show full analytical details and class probabilities", expanded=False):
             render_big_scroll_table(df_display, height=430, font_px=19)
 
-        # -------------------- SHAP：tabs 横向滚动 + 两列并排 --------------------
-        st.subheader("📈 SHAP Interpretability")
-        st.caption("Feature contributions to class predictions. Switch between global importance bars and beeswarm views.")
-        st.markdown("""
-        <style>
-        div[data-testid="stTabs"] [data-baseweb="tab-list"]{
-            display:flex!important;
-            flex-wrap:nowrap!important;
-            overflow-x:scroll!important;
-            overflow-y:hidden!important;
-            white-space:nowrap!important;
-            scrollbar-width:auto!important;
-            scrollbar-color:#7c8795 #e9edf2!important;
-            scrollbar-gutter:stable!important;
-            padding-bottom:10px!important;
-        }
-        div[data-testid="stTabs"] [data-baseweb="tab"]{
-            flex:0 0 auto!important;
-            white-space:nowrap!important;
-            padding:10px 16px!important;
-            margin:0 3px!important;
-            font-size:34px!important;
-        }
-        div[data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar{
-            display:block!important;
-            height:12px!important;
-        }
-        div[data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar-thumb{
-            background:#7c8795!important;
-            border-radius:8px!important;
-            border:2px solid #e9edf2!important;
-        }
-        div[data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar-track{
-            background:#e9edf2!important;
-            border-radius:8px!important;
-        }
-        .stRadio label {font-size:26px!important;}
-        .stRadio [role="radiogroup"] label p {font-size:26px!important;}
-        div[data-testid="stMarkdownContainer"] h4 {
-            font-size:34px!important;
-            margin-bottom:0.5rem!important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
-        TOP_K = 13
-        st.markdown("<div style='font-size:28px;font-weight:600;margin-bottom:10px;'>Per-class SHAP view</div>", unsafe_allow_html=True)
-        chart_kind = st.radio(
-            "Per-class SHAP view",
-            ["Bar (mean |SHAP|)", "Beeswarm"],
-            horizontal=True,
-            index=0,
-            label_visibility="collapsed"
-        )
-
-        def _safe_class_names(m):
-            try:
-                return [str(x) for x in list(getattr(m, "classes_", []))]
-            except Exception:
-                return []
-
-        def _show_shap_fig_compact(fig):
-            # 新版 Streamlit 用 width="content"，旧版则回退到 use_container_width=False。
-            # 这样 Matplotlib 图保持自己的尺寸，不再自动铺满整列。
-            try:
-                st.pyplot(fig, width="content")
-            except TypeError:
-                st.pyplot(fig, use_container_width=False)
-
-
-        # ===== 统计图统一画布 / 字体 / 网页显示尺寸 =====
-        STATS_FIGSIZE = (7.2, 4.9)   # 四张图完全相同，稍微放宽以容纳 legend
-        STATS_DPI = 120
-        STATS_DISPLAY_WIDTH = 680    # 网页上四张图完全相同宽度
-        STATS_FONT = 17
-        STATS_TITLE_FONT = 20
-
-        def _stats_png_bytes(fig):
-            buf = BytesIO()
-            # 不使用 bbox_inches="tight"，避免不同内容导致最终图片尺寸变化
-            fig.savefig(
-                buf,
-                format="png",
-                dpi=STATS_DPI,
-                bbox_inches=None,
-                facecolor="white"
-            )
-            buf.seek(0)
-            return buf.getvalue()
-
-        def _show_fixed_stats_fig(fig, title):
-            png = _stats_png_bytes(fig)
-            st.image(png, width=STATS_DISPLAY_WIDTH)
-            st.download_button(
-                "⬇️ Download PNG",
-                png,
-                file_name=f"{title.replace(' · ','_').replace(' ','_')}.png",
-                mime="image/png"
-            )
-
-        def _bar_per_class(shap_vals_1class, X, title, top_k=TOP_K):
-            mean_abs = np.mean(np.abs(shap_vals_1class), axis=0).reshape(-1)
-            order = np.argsort(mean_abs); k = min(top_k, len(order))
-            sel = order[-k:]
-            feats = np.array(display_feature_labels(X.columns))[sel]
-            vals  = mean_abs[sel]
-
-            # 紧凑版：保留 13 个特征，但不让图占满整个网页。
-            fig, ax = plt.subplots(figsize=(5.8*chart_scale, 4.3*chart_scale))
-            ax.barh(np.arange(len(vals)), vals)
-            ax.set_yticks(np.arange(len(vals)))
-            ax.set_yticklabels(feats, fontsize=10)
-            ax.tick_params(axis="x", labelsize=10)
-            ax.set_xlabel("mean |SHAP|", fontsize=11)
-            ax.set_title(title, fontsize=12, pad=8)
-            fig.tight_layout(pad=0.9)
-            _show_shap_fig_compact(fig)
-            plt.close(fig)
-
-        def _sv_to_list_per_class(sv, X, class_names):
-            N, F = X.shape
-            if isinstance(sv, list):
-                return [np.asarray(a).reshape(N, F) for a in sv]
-            arr = np.asarray(sv)
-            if arr.ndim == 2:
-                r, c = arr.shape
-                if r == N and c == F:
-                    if class_names and len(class_names) == 2: return [-arr, arr]
-                    return [arr]
-                if r == N and c % F == 0:
-                    C = c // F; return [arr[:, i*F:(i+1)*F].reshape(N, F) for i in range(C)]
-                if c == F and r % N == 0:
-                    C = r // N; return [arr[i*N:(i+1)*N, :].reshape(N, F) for i in range(C)]
-                if class_names and arr.size == N*F*len(class_names):
-                    C = len(class_names)
-                    try:    tmp = arr.reshape(N, F, C); return [tmp[:, :, i] for i in range(C)]
-                    except:
-                        try: tmp = arr.reshape(C, N, F); return [tmp[i, :, :] for i in range(C)]
-                        except: pass
-                return [arr.reshape(N, F)]
-            if arr.ndim == 3:
-                if arr.shape[0] == N and arr.shape[1] == F:
-                    C = arr.shape[2]; return [arr[:, :, i].reshape(N, F) for i in range(C)]
-                if arr.shape[1] == N and arr.shape[2] == F:
-                    C = arr.shape[0]; return [arr[i, :, :].reshape(N, F) for i in range(C)]
-                if arr.shape[0] == N and arr.shape[2] == F:
-                    C = arr.shape[1]; return [arr[:, i, :].reshape(N, F) for i in range(C)]
-            return [arr.reshape(N, F)]
-
-        def _render_per_class(model, level_name, X):
-            explainer = _make_explainer_cached(_model_signature(model), _model=model)
-            raw_sv = explainer.shap_values(X)
-            class_names_internal = _safe_class_names(model)
-            sv_list = _sv_to_list_per_class(raw_sv, X, class_names_internal)
-            if not class_names_internal or len(class_names_internal) != len(sv_list):
-                class_names_internal = [f"class {i}" for i in range(len(sv_list))]
-                if len(sv_list) == 2:
-                    class_names_internal = ["negative", "positive"]
-
-            # 仅替换显示名称；SHAP 数组顺序仍与模型 classes_ 完全一致
-            if level_name == "Level2":
-                class_names = [display_level2_label(x) for x in class_names_internal]
-            elif level_name == "Level1":
-                class_names = [display_level1_label(x) for x in class_names_internal]
-            else:
-                class_names = class_names_internal
-            # Use concise Level-2 tab labels (EOC, CC, A-L, HED-Mes, Win-IAB, etc.)
-            # while keeping the full display name available for the figure title.
-            tab_labels = ([_short_chart_label(x) for x in class_names]
-                          if level_name == "Level2" else class_names)
-            tabs = st.tabs(tab_labels)
-            for tab, cname, arr in zip(tabs, class_names, sv_list):
-                with tab:
-                    if chart_kind.startswith("Bar"):
-                        _bar_per_class(arr, X, title=f"{level_name} · {cname}", top_k=TOP_K)
-                    else:
-                        X_disp = X.copy()
-                        X_disp.columns = display_feature_labels(X.columns)
-                        shap.summary_plot(arr, X_disp, max_display=TOP_K, show=False)
-                        fig = plt.gcf()
-                        fig.set_size_inches(5.8*chart_scale, 4.3*chart_scale, forward=True)
-                        ax = plt.gca()
-                        ax.tick_params(axis="both", labelsize=10)
-                        ax.set_xlabel(ax.get_xlabel(), fontsize=11)
-                        ax.set_ylabel(ax.get_ylabel(), fontsize=11)
-                        plt.title(f"{level_name} · {cname}", fontsize=12, pad=8)
-                        # SHAP may create a colorbar as a second axes; enlarge its text too.
-                        if len(fig.axes) > 1:
-                            for extra_ax in fig.axes[1:]:
-                                extra_ax.tick_params(labelsize=10)
-                                extra_ax.yaxis.label.set_size(10)
-                        plt.tight_layout(pad=0.9)
-                        _show_shap_fig_compact(fig)
-                        plt.close(fig)
-
-        # 两侧留白 + 中间留白，不让两张图把整行塞满。
-        shap_layout = st.columns([1.10, 2.70, 1.10, 2.70, 1.10], gap="small")
-        cols_shap = [shap_layout[1], shap_layout[3]]
-        X_map = {"Level1": df_input_L1, "Level2": df_input_L2}
-        for col, (mdl, nm) in zip(cols_shap, [(model_lvl1, "Level1"), (model_lvl2, "Level2")]):
-            with col:
-                # A light card border separates the two analysis panels without adding a distracting background color.
-                with st.container(border=True):
-                    st.markdown(f"#### 🔍 {nm} (per class)")
-                    _render_per_class(mdl, nm, X_map[nm])
-
         # >>> NEW: 预计算 summary（Level1 / Level2）
         # =======================================================================
         def _vc_df_early(labels: np.ndarray) -> pd.DataFrame:
@@ -1369,8 +1177,9 @@ if uploaded_file is not None:
         df_l1 = _vc_df_early(display_level1_array(pred1_label)).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
         df_l2 = _vc_df_early(display_level2_array(pred2_label)).sort_values(["count","Class"], ascending=[False,True], ignore_index=True)
 
-        # ===================== 📋 Classification summary (tables)  =====================
-        st.subheader("📋 Classification summary (tables)")
+        # ===================== 📊 Classification summary =====================
+        st.subheader("📊 Classification summary")
+        st.markdown("#### Tables")
         st.caption("Distribution of predicted classes across the uploaded analyses.")
 
         def _make_summary_from_labels(labels, total_n=None) -> pd.DataFrame:
@@ -1416,8 +1225,8 @@ if uploaded_file is not None:
                 l2_table_height = 48 + visible_rows_l2 * 46
                 render_big_scroll_table(df_l2_tbl, height=l2_table_height, font_px=21)
 
-        # ===================== 🪐 Classification distribution figures =====================
-        st.subheader("🪐 Classification distribution figures")
+        # ===================== Figures =====================
+        st.markdown("#### Figures")
         st.caption("Each panel combines a class-share pie chart, a frequency bar chart, and a color legend.")
 
         def _vc_df(labels: np.ndarray, total_n: int | None = None) -> pd.DataFrame:
@@ -1513,18 +1322,18 @@ if uploaded_file is not None:
                     pctdistance=0.70,
                     radius=0.80,
                     wedgeprops=dict(linewidth=0.9, edgecolor="white"),
-                    textprops=dict(fontsize=14)
+                    textprops=dict(fontsize=10.5)
                 )
                 ax_pie.axis("equal")
-                ax_pie.set_title("Class share", fontsize=17, pad=8)
+                ax_pie.set_title("Class share", fontsize=12.75, pad=8)
 
                 x = np.arange(len(labels))
                 ax_bar.bar(x, counts, edgecolor="black", linewidth=0.8, color=colors)
                 ax_bar.set_xticks(x)
-                ax_bar.set_xticklabels(short_labels, rotation=20, ha="right", fontsize=12)
-                ax_bar.set_ylabel("Count", fontsize=15)
-                ax_bar.tick_params(axis="y", labelsize=13)
-                ax_bar.set_title("Class frequency", fontsize=17, pad=8)
+                ax_bar.set_xticklabels(short_labels, rotation=20, ha="right", fontsize=9)
+                ax_bar.set_ylabel("Count", fontsize=11.25)
+                ax_bar.tick_params(axis="y", labelsize=9.75)
+                ax_bar.set_title("Class frequency", fontsize=12.75, pad=8)
 
                 ymax = max(max(counts), 1)
                 ax_bar.set_ylim(0, ymax * 1.22)
@@ -1532,7 +1341,7 @@ if uploaded_file is not None:
                     ax_bar.text(
                         i, yi + ymax * 0.025,
                         f"{yi}/{total_n}",
-                        ha="center", va="bottom", fontsize=12
+                        ha="center", va="bottom", fontsize=9
                     )
 
                 legend_labels = [
@@ -1553,8 +1362,8 @@ if uploaded_file is not None:
                     bbox_to_anchor=(0.5, 0.42),
                     ncol=ncol,
                     frameon=False,
-                    fontsize=12,
-                    title_fontsize=14,
+                    fontsize=9,
+                    title_fontsize=10.5,
                     columnspacing=1.8,
                     handlelength=1.3,
                     handletextpad=0.55,
@@ -1566,10 +1375,10 @@ if uploaded_file is not None:
                 except Exception:
                     pass
 
-                fig.suptitle(title, fontsize=19, y=0.965)
+                fig.suptitle(title, fontsize=14.25, y=0.965)
                 fig.subplots_adjust(left=0.10, right=0.92, top=0.79, bottom=0.11)
 
-                png = _stats_png_bytes(fig)
+                png = _save_fig_as_png_bytes(fig, dpi=120)
                 st.image(png, width="stretch")
                 st.download_button(
                     "⬇️ Download PNG",
@@ -1594,6 +1403,213 @@ if uploaded_file is not None:
             total_n=(N_L2 if N_L2 > 0 else 1)
         )
 
+        # -------------------- SHAP：tabs 横向滚动 + 两列并排 --------------------
+        st.subheader("📈 SHAP Interpretability")
+        st.caption("Feature contributions to class predictions. Switch between global importance bars and beeswarm views.")
+        st.markdown("""
+        <style>
+        div[data-testid="stTabs"] [data-baseweb="tab-list"]{
+            display:flex!important;
+            flex-wrap:nowrap!important;
+            overflow-x:scroll!important;
+            overflow-y:hidden!important;
+            white-space:nowrap!important;
+            scrollbar-width:auto!important;
+            scrollbar-color:#7c8795 #e9edf2!important;
+            scrollbar-gutter:stable!important;
+            padding-bottom:10px!important;
+        }
+        div[data-testid="stTabs"] [data-baseweb="tab"]{
+            flex:0 0 auto!important;
+            white-space:nowrap!important;
+            padding:10px 16px!important;
+            margin:0 3px!important;
+            font-size:25.5px!important;
+        }
+        div[data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar{
+            display:block!important;
+            height:12px!important;
+        }
+        div[data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar-thumb{
+            background:#7c8795!important;
+            border-radius:8px!important;
+            border:2px solid #e9edf2!important;
+        }
+        div[data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar-track{
+            background:#e9edf2!important;
+            border-radius:8px!important;
+        }
+        .stRadio label {font-size:19.5px!important;}
+        .stRadio [role="radiogroup"] label p {font-size:19.5px!important;}
+        div[data-testid="stMarkdownContainer"] h4 {
+            font-size:25.5px!important;
+            margin-bottom:0.5rem!important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        TOP_K = 13
+        st.markdown("<div style='font-size:21px;font-weight:600;margin-bottom:10px;'>Per-class SHAP view</div>", unsafe_allow_html=True)
+        chart_kind = st.radio(
+            "Per-class SHAP view",
+            ["Bar (mean |SHAP|)", "Beeswarm"],
+            horizontal=True,
+            index=0,
+            label_visibility="collapsed"
+        )
+
+        def _safe_class_names(m):
+            try:
+                return [str(x) for x in list(getattr(m, "classes_", []))]
+            except Exception:
+                return []
+
+        def _show_shap_fig_compact(fig):
+            # 新版 Streamlit 用 width="content"，旧版则回退到 use_container_width=False。
+            # 这样 Matplotlib 图保持自己的尺寸，不再自动铺满整列。
+            try:
+                st.pyplot(fig, width="content")
+            except TypeError:
+                st.pyplot(fig, use_container_width=False)
+
+
+        # ===== 统计图统一画布 / 字体 / 网页显示尺寸 =====
+        STATS_FIGSIZE = (7.2, 4.9)   # 四张图完全相同，稍微放宽以容纳 legend
+        STATS_DPI = 120
+        STATS_DISPLAY_WIDTH = 680    # 网页上四张图完全相同宽度
+        STATS_FONT = 17
+        STATS_TITLE_FONT = 20
+
+        def _stats_png_bytes(fig):
+            buf = BytesIO()
+            # 不使用 bbox_inches="tight"，避免不同内容导致最终图片尺寸变化
+            fig.savefig(
+                buf,
+                format="png",
+                dpi=STATS_DPI,
+                bbox_inches=None,
+                facecolor="white"
+            )
+            buf.seek(0)
+            return buf.getvalue()
+
+        def _show_fixed_stats_fig(fig, title):
+            png = _stats_png_bytes(fig)
+            st.image(png, width=STATS_DISPLAY_WIDTH)
+            st.download_button(
+                "⬇️ Download PNG",
+                png,
+                file_name=f"{title.replace(' · ','_').replace(' ','_')}.png",
+                mime="image/png"
+            )
+
+        def _bar_per_class(shap_vals_1class, X, title, top_k=TOP_K):
+            mean_abs = np.mean(np.abs(shap_vals_1class), axis=0).reshape(-1)
+            order = np.argsort(mean_abs); k = min(top_k, len(order))
+            sel = order[-k:]
+            feats = np.array(display_feature_labels(X.columns))[sel]
+            vals  = mean_abs[sel]
+
+            # 紧凑版：保留 13 个特征，但不让图占满整个网页。
+            fig, ax = plt.subplots(figsize=(5.8*chart_scale, 4.3*chart_scale))
+            ax.barh(np.arange(len(vals)), vals)
+            ax.set_yticks(np.arange(len(vals)))
+            ax.set_yticklabels(feats, fontsize=7.5)
+            ax.tick_params(axis="x", labelsize=7.5)
+            ax.set_xlabel("mean |SHAP|", fontsize=8.25)
+            ax.set_title(title, fontsize=9, pad=8)
+            fig.tight_layout(pad=0.9)
+            _show_shap_fig_compact(fig)
+            plt.close(fig)
+
+        def _sv_to_list_per_class(sv, X, class_names):
+            N, F = X.shape
+            if isinstance(sv, list):
+                return [np.asarray(a).reshape(N, F) for a in sv]
+            arr = np.asarray(sv)
+            if arr.ndim == 2:
+                r, c = arr.shape
+                if r == N and c == F:
+                    if class_names and len(class_names) == 2: return [-arr, arr]
+                    return [arr]
+                if r == N and c % F == 0:
+                    C = c // F; return [arr[:, i*F:(i+1)*F].reshape(N, F) for i in range(C)]
+                if c == F and r % N == 0:
+                    C = r // N; return [arr[i*N:(i+1)*N, :].reshape(N, F) for i in range(C)]
+                if class_names and arr.size == N*F*len(class_names):
+                    C = len(class_names)
+                    try:    tmp = arr.reshape(N, F, C); return [tmp[:, :, i] for i in range(C)]
+                    except:
+                        try: tmp = arr.reshape(C, N, F); return [tmp[i, :, :] for i in range(C)]
+                        except: pass
+                return [arr.reshape(N, F)]
+            if arr.ndim == 3:
+                if arr.shape[0] == N and arr.shape[1] == F:
+                    C = arr.shape[2]; return [arr[:, :, i].reshape(N, F) for i in range(C)]
+                if arr.shape[1] == N and arr.shape[2] == F:
+                    C = arr.shape[0]; return [arr[i, :, :].reshape(N, F) for i in range(C)]
+                if arr.shape[0] == N and arr.shape[2] == F:
+                    C = arr.shape[1]; return [arr[:, i, :].reshape(N, F) for i in range(C)]
+            return [arr.reshape(N, F)]
+
+        def _render_per_class(model, level_name, X):
+            explainer = _make_explainer_cached(_model_signature(model), _model=model)
+            raw_sv = explainer.shap_values(X)
+            class_names_internal = _safe_class_names(model)
+            sv_list = _sv_to_list_per_class(raw_sv, X, class_names_internal)
+            if not class_names_internal or len(class_names_internal) != len(sv_list):
+                class_names_internal = [f"class {i}" for i in range(len(sv_list))]
+                if len(sv_list) == 2:
+                    class_names_internal = ["negative", "positive"]
+
+            # 仅替换显示名称；SHAP 数组顺序仍与模型 classes_ 完全一致
+            if level_name == "Level2":
+                class_names = [display_level2_label(x) for x in class_names_internal]
+            elif level_name == "Level1":
+                class_names = [display_level1_label(x) for x in class_names_internal]
+            else:
+                class_names = class_names_internal
+            # Use concise Level-2 tab labels (EOC, CC, A-L, HED-Mes, Win-IAB, etc.)
+            # while keeping the full display name available for the figure title.
+            tab_labels = ([_short_chart_label(x) for x in class_names]
+                          if level_name == "Level2" else class_names)
+            tabs = st.tabs(tab_labels)
+            for tab, cname, arr in zip(tabs, class_names, sv_list):
+                with tab:
+                    if chart_kind.startswith("Bar"):
+                        _bar_per_class(arr, X, title=f"{level_name} · {cname}", top_k=TOP_K)
+                    else:
+                        X_disp = X.copy()
+                        X_disp.columns = display_feature_labels(X.columns)
+                        shap.summary_plot(arr, X_disp, max_display=TOP_K, show=False)
+                        fig = plt.gcf()
+                        fig.set_size_inches(5.8*chart_scale, 4.3*chart_scale, forward=True)
+                        ax = plt.gca()
+                        ax.tick_params(axis="both", labelsize=7.5)
+                        ax.set_xlabel(ax.get_xlabel(), fontsize=8.25)
+                        ax.set_ylabel(ax.get_ylabel(), fontsize=8.25)
+                        plt.title(f"{level_name} · {cname}", fontsize=9, pad=8)
+                        # SHAP may create a colorbar as a second axes; enlarge its text too.
+                        if len(fig.axes) > 1:
+                            for extra_ax in fig.axes[1:]:
+                                extra_ax.tick_params(labelsize=7.5)
+                                extra_ax.yaxis.label.set_size(7.5)
+                        plt.tight_layout(pad=0.9)
+                        _show_shap_fig_compact(fig)
+                        plt.close(fig)
+
+        # 两侧留白 + 中间留白，不让两张图把整行塞满。
+        shap_layout = st.columns([1.10, 2.70, 1.10, 2.70, 1.10], gap="small")
+        cols_shap = [shap_layout[1], shap_layout[3]]
+        X_map = {"Level1": df_input_L1, "Level2": df_input_L2}
+        for col, (mdl, nm) in zip(cols_shap, [(model_lvl1, "Level1"), (model_lvl2, "Level2")]):
+            with col:
+                # A light card border separates the two analysis panels without adding a distracting background color.
+                with st.container(border=True):
+                    st.markdown(f"#### 🔍 {nm} (per class)")
+                    _render_per_class(mdl, nm, X_map[nm])
+
+
         # -------------------- 自愿数据分享（默认折叠） --------------------
         with st.expander(
             "Would you like to share your data with us to help expand the database and improve future model retraining?",
@@ -1601,13 +1617,41 @@ if uploaded_file is not None:
         ):
             st.caption(
                 "Shared data will be used for research database development and future model retraining. "
-                "Please provide a contact email so we can follow up if clarification is needed."
+                "Nothing is added to the training pool until both confirmations are checked and the Submit button is pressed."
             )
 
             contact_email = st.text_input(
                 "Contact email",
                 placeholder="name@example.com",
                 key="data_share_contact_email"
+            ).strip()
+
+            contact_name = st.text_input(
+                "Name",
+                placeholder="Your name",
+                key="data_share_contact_name"
+            ).strip()
+
+            contact_institution = st.text_input(
+                "Institution",
+                placeholder="University / institute / laboratory",
+                key="data_share_institution"
+            ).strip()
+
+            instrument_type = st.radio(
+                "Instrument type",
+                ["EPMA", "EDS", "Other"],
+                horizontal=True,
+                key="data_share_instrument_type"
+            )
+
+            other_information = st.text_area(
+                "Other information (optional)",
+                placeholder=(
+                    "If you selected 'Other' above, please specify the instrument here. "
+                    "You may also add any other information you would like us to know."
+                ),
+                key="data_share_other_information"
             ).strip()
 
             same_specimen = st.checkbox(
@@ -1672,8 +1716,15 @@ if uploaded_file is not None:
                 key="share_training_consent"
             )
 
-            # A deliberate submit button prevents accidental / repeated writes on ordinary Streamlit reruns.
-            if share_consent:
+            # Data are written only after BOTH confirmations are checked AND this button is pressed.
+            submit_share = st.button(
+                "Submit data to the research database",
+                type="primary",
+                key="submit_shared_training_data",
+                disabled=not (same_specimen and share_consent)
+            )
+
+            if submit_share:
                 email_ok = bool(
                     re.fullmatch(
                         r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
@@ -1686,85 +1737,83 @@ if uploaded_file is not None:
                 elif not email_ok:
                     st.warning("Please enter a valid email address.")
                 else:
-                    submit_share = st.button(
-                        "Submit data to the research database",
-                        type="primary",
-                        key="submit_shared_training_data"
+                    df_save = df_input.copy()
+                    df_save["Level1"] = pred1_label
+                    df_save["Level2"] = pred2_label
+                    df_save["ContactEmail"] = contact_email
+                    df_save["ContactName"] = contact_name
+                    df_save["Institution"] = contact_institution
+                    df_save["InstrumentType"] = instrument_type
+                    df_save["OtherInformation"] = other_information
+                    df_save["SamePhysicalSpecimen"] = bool(same_specimen)
+                    df_save["ShareConsent"] = bool(share_consent)
+                    df_save["SourceFile"] = str(getattr(uploaded_file, "name", "uploaded_file"))
+
+                    local_path = "training_pool.csv"
+                    header_needed = not os.path.exists(local_path)
+                    df_save.to_csv(
+                        local_path,
+                        mode="a",
+                        header=header_needed,
+                        index=False,
+                        encoding="utf-8-sig"
                     )
+                    st.success("✅ Thank you. Your data have been added to the research training pool.")
 
-                    if submit_share:
-                        df_save = df_input.copy()
-                        df_save["Level1"] = pred1_label
-                        df_save["Level2"] = pred2_label
-                        df_save["ContactEmail"] = contact_email
-                        df_save["SamePhysicalSpecimen"] = bool(same_specimen)
-                        df_save["SourceFile"] = str(getattr(uploaded_file, "name", "uploaded_file"))
-
-                        local_path = "training_pool.csv"
-                        header_needed = not os.path.exists(local_path)
-                        df_save.to_csv(
-                            local_path,
-                            mode="a",
-                            header=header_needed,
-                            index=False,
-                            encoding="utf-8-sig"
+                    try:
+                        GITHUB_TOKEN = (
+                            st.secrets.get("gh_token")
+                            or (st.secrets.get("github", {}) or {}).get("token")
                         )
-                        st.success("✅ Thank you. Your data have been added to the research training pool.")
+                        repo_owner = st.secrets.get("gh_repo_owner", "Farah-rain")
+                        repo_name  = st.secrets.get("gh_repo_name",  "chromite")
+                        dst_path   = st.secrets.get("gh_dst_path",   "training_pool.csv")
+                        branch     = st.secrets.get("gh_branch",     "main")
 
-                        try:
-                            GITHUB_TOKEN = (
-                                st.secrets.get("gh_token")
-                                or (st.secrets.get("github", {}) or {}).get("token")
+                        if not GITHUB_TOKEN:
+                            st.info(
+                                "GitHub token is not configured. "
+                                "The submission was saved to the app's local training pool only."
                             )
-                            repo_owner = st.secrets.get("gh_repo_owner", "Farah-rain")
-                            repo_name  = st.secrets.get("gh_repo_name",  "chromite")
-                            dst_path   = st.secrets.get("gh_dst_path",   "training_pool.csv")
-                            branch     = st.secrets.get("gh_branch",     "main")
+                        else:
+                            with open(local_path, "rb") as f:
+                                content_b64 = base64.b64encode(f.read()).decode("utf-8")
 
-                            if not GITHUB_TOKEN:
-                                st.info(
-                                    "GitHub token is not configured. "
-                                    "The submission was saved to the app's local training pool only."
-                                )
+                            url = (
+                                f"https://api.github.com/repos/"
+                                f"{repo_owner}/{repo_name}/contents/{dst_path}"
+                            )
+                            headers = {
+                                "Authorization": f"token {GITHUB_TOKEN}",
+                                "Accept": "application/vnd.github+json"
+                            }
+
+                            r = requests.get(url, headers=headers)
+                            sha = r.json().get("sha") if r.status_code == 200 else None
+
+                            payload = {
+                                "message": "update training pool",
+                                "content": content_b64,
+                                "branch": branch
+                            }
+                            if sha:
+                                payload["sha"] = sha
+
+                            put_resp = requests.put(
+                                url,
+                                headers=headers,
+                                json=payload
+                            )
+
+                            if 200 <= put_resp.status_code < 300:
+                                st.success("✅ Shared data synchronized to the research repository.")
                             else:
-                                with open(local_path, "rb") as f:
-                                    content_b64 = base64.b64encode(f.read()).decode("utf-8")
-
-                                url = (
-                                    f"https://api.github.com/repos/"
-                                    f"{repo_owner}/{repo_name}/contents/{dst_path}"
+                                st.warning(
+                                    f"⚠️ Repository sync failed ({put_resp.status_code}): "
+                                    f"{put_resp.text[:300]}"
                                 )
-                                headers = {
-                                    "Authorization": f"token {GITHUB_TOKEN}",
-                                    "Accept": "application/vnd.github+json"
-                                }
-
-                                r = requests.get(url, headers=headers)
-                                sha = r.json().get("sha") if r.status_code == 200 else None
-
-                                payload = {
-                                    "message": "update training pool",
-                                    "content": content_b64,
-                                    "branch": branch
-                                }
-                                if sha:
-                                    payload["sha"] = sha
-
-                                put_resp = requests.put(
-                                    url,
-                                    headers=headers,
-                                    json=payload
-                                )
-
-                                if 200 <= put_resp.status_code < 300:
-                                    st.success("✅ Shared data synchronized to the research repository.")
-                                else:
-                                    st.warning(
-                                        f"⚠️ Repository sync failed ({put_resp.status_code}): "
-                                        f"{put_resp.text[:300]}"
-                                    )
-                        except Exception as e:
-                            st.error(f"❌ Repository sync error: {e}")
+                    except Exception as e:
+                        st.error(f"❌ Repository sync error: {e}")
 
         # -------------------- 结果下载（Prediction + Summary） --------------------
         output = BytesIO()
