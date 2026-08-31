@@ -25,7 +25,7 @@ def render_hero_banner():
                 <div class="hero-copy">
                     <div class="hero-banner-title">Chromite Provenance Classifier</div>
                     <div class="hero-banner-subtitle">
-                        Machine-learning classification of chromite compositions for terrestrial–extraterrestrial provenance and extraterrestrial subclass attribution.
+                        Machine-learning classification based on chromite compositions.
                     </div>
                 </div>
             </div>
@@ -410,6 +410,77 @@ div[data-testid="stFileUploader"] section button[aria-label*="clear" i] {
     font-size: 20.25px !important;
 }
 
+
+
+/* ---------- compact secondary headings inside Classification summary ---------- */
+.summary-subheading {
+    margin: 22px 0 8px 0;
+    font-size: 21px !important;
+    line-height: 1.25 !important;
+    font-weight: 700 !important;
+    color: #1f2937 !important;
+}
+
+/* ---------- data-sharing form: restore comfortable readability ---------- */
+.st-key-data_share_contact_email label,
+.st-key-data_share_contact_name label,
+.st-key-data_share_institution label,
+.st-key-data_share_instrument_type label,
+.st-key-data_share_other_information label,
+.st-key-data_share_contact_email label p,
+.st-key-data_share_contact_name label p,
+.st-key-data_share_institution label p,
+.st-key-data_share_instrument_type label p,
+.st-key-data_share_other_information label p {
+    font-size: 18px !important;
+    line-height: 1.25 !important;
+}
+
+.st-key-data_share_contact_email input,
+.st-key-data_share_contact_name input,
+.st-key-data_share_institution input,
+.st-key-data_share_other_information textarea {
+    font-size: 17px !important;
+    line-height: 1.35 !important;
+}
+
+.st-key-data_share_contact_email input::placeholder,
+.st-key-data_share_contact_name input::placeholder,
+.st-key-data_share_institution input::placeholder,
+.st-key-data_share_other_information textarea::placeholder {
+    font-size: 16px !important;
+}
+
+.st-key-data_share_instrument_type [role="radiogroup"] label,
+.st-key-data_share_instrument_type [role="radiogroup"] label p,
+.st-key-data_share_instrument_type [role="radiogroup"] span {
+    font-size: 18px !important;
+}
+
+/* ---------- center the concise Submit button ---------- */
+.st-key-submit_shared_training_data {
+    width: 100% !important;
+    display: flex !important;
+    justify-content: center !important;
+}
+.st-key-submit_shared_training_data > div {
+    width: auto !important;
+}
+.st-key-submit_shared_training_data button {
+    min-width: 120px !important;
+}
+
+/* ---------- right-align all download controls (Excel and PNG) ---------- */
+.stDownloadButton,
+div[data-testid="stDownloadButton"] {
+    width: 100% !important;
+    display: flex !important;
+    justify-content: flex-end !important;
+}
+.stDownloadButton > div,
+div[data-testid="stDownloadButton"] > div {
+    width: auto !important;
+}
 
 
 </style>
@@ -1034,7 +1105,7 @@ else:
 
 # -------------------- 上传文件并处理 --------------------
 uploaded_file = st.file_uploader(
-    "Upload an Excel or CSV file (maximum 200 MB per file; please replace your FeO with FeOT if you did not measure FeO and Fe2O3 separately).",
+    "Upload an Excel or CSV file (please replace your FeO with FeOT if you did not measure FeO and Fe2O3 separately).",
     type=["xlsx", "csv"],
     key="chromite_data_uploader"
 )
@@ -1179,7 +1250,7 @@ if uploaded_file is not None:
 
         # ===================== 📊 Classification summary =====================
         st.subheader("📊 Classification summary")
-        st.markdown("#### Tables")
+        st.markdown('<div class="summary-subheading">▸ Tables</div>', unsafe_allow_html=True)
         st.caption("Distribution of predicted classes across the uploaded analyses.")
 
         def _make_summary_from_labels(labels, total_n=None) -> pd.DataFrame:
@@ -1204,6 +1275,7 @@ if uploaded_file is not None:
 
         df_l1_tbl.insert(0, "Level", "Level1")
         df_l2_tbl.insert(0, "Level", "Level2")
+        df_l2_tbl = df_l2_tbl.rename(columns={"Class": "Class (Extraterrestrial only)"})
 
         # 两张统计表收窄：两侧留白 + 中间留白
         tbl_layout = st.columns([1.25, 2.55, 1.00, 2.55, 1.25], gap="small")
@@ -1226,7 +1298,7 @@ if uploaded_file is not None:
                 render_big_scroll_table(df_l2_tbl, height=l2_table_height, font_px=21)
 
         # ===================== Figures =====================
-        st.markdown("#### Figures")
+        st.markdown('<div class="summary-subheading">▸ Figures</div>', unsafe_allow_html=True)
         st.caption("Each panel combines a class-share pie chart, a frequency bar chart, and a color legend.")
 
         def _vc_df(labels: np.ndarray, total_n: int | None = None) -> pd.DataFrame:
@@ -1718,7 +1790,7 @@ if uploaded_file is not None:
 
             # Data are written only after BOTH confirmations are checked AND this button is pressed.
             submit_share = st.button(
-                "Submit data to the research database",
+                "Submit",
                 type="primary",
                 key="submit_shared_training_data",
                 disabled=not (same_specimen and share_consent)
