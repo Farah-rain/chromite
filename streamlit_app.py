@@ -2,7 +2,6 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
-import shap
 import matplotlib.pyplot as plt
 import os, joblib, requests, base64, re
 from io import BytesIO
@@ -119,7 +118,7 @@ html {
     font-size: 18px !important;
 }
 
-/* Main section headings (Prediction Results, SHAP, summary, distribution, etc.) */
+/* Main section headings (Prediction Results, summary, distribution, etc.) */
 h3,
 div[data-testid="stMarkdownContainer"] h3,
 [data-testid="stHeadingWithActionElements"] h3 {
@@ -402,16 +401,6 @@ div[data-testid="stFileUploader"] section button[aria-label*="clear" i] {
 }
 
 
-/* 强制放大 SHAP 类别 tabs */
-.stTabs [data-baseweb="tab"] p,
-.stTabs [data-baseweb="tab"] span,
-.stTabs [role="tab"] p,
-.stTabs [role="tab"] span {
-    font-size: 20.25px !important;
-}
-
-
-
 /* ---------- compact secondary headings inside Classification summary ---------- */
 .summary-subheading {
     margin: 22px 0 8px 0;
@@ -618,7 +607,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: compact-shap-larger-filename-v45-TEMP-6DP")
+    st.caption("Build: grouped-export-no-shap-v46-3DP")
 
     
     @st.cache_resource
@@ -780,16 +769,6 @@ def apply_threshold(proba: np.ndarray, classes: np.ndarray, thr: float):
     return pred, max_val
 
 
-def _make_explainer_cached(sig: str, _model):
-    return shap.TreeExplainer(_model)
-
-def _model_signature(model) -> str:
-    try:    params_tup = tuple(sorted((k, str(v)) for k, v in model.get_params().items()))
-    except Exception: params_tup = ()
-    try:    classes = tuple(map(str, getattr(model, "classes_", ())))
-    except Exception: classes = ()
-    return f"{model.__class__.__name__}|{hash(params_tup)}|{hash(classes)}"
-
 # 结果下载通用
 def _save_fig_as_png_bytes(fig, dpi=220):
     buf = BytesIO()
@@ -810,7 +789,7 @@ def _short_chart_label(label):
     return raw
 
 
-def _round_float_columns(df: pd.DataFrame, decimals: int = 6) -> pd.DataFrame:
+def _round_float_columns(df: pd.DataFrame, decimals: int = 3) -> pd.DataFrame:
     """Round floating-point columns while preserving integer/text columns."""
     out = df.copy()
     for col in out.columns:
@@ -819,7 +798,7 @@ def _round_float_columns(df: pd.DataFrame, decimals: int = 6) -> pd.DataFrame:
     return out
 
 
-def _format_table_for_html(df: pd.DataFrame, decimals: int = 6) -> pd.DataFrame:
+def _format_table_for_html(df: pd.DataFrame, decimals: int = 3) -> pd.DataFrame:
     """Format float columns to fixed decimals for website display."""
     out = df.copy()
     for col in out.columns:
@@ -837,7 +816,7 @@ def render_big_scroll_table(df: pd.DataFrame, height: int = 430, font_px: int = 
         st.info("No data")
         return
 
-    df_html = _format_table_for_html(df, decimals=6)
+    df_html = _format_table_for_html(df, decimals=3)
 
     html_table = df_html.to_html(
         index=False,
@@ -1148,9 +1127,10 @@ if uploaded_file is not None:
     st.success(f"✅ File uploaded successfully: {uploaded_file.name} ({file_size_kb:.1f} KB)")
 
     try:
-        df_uploaded = (pd.read_csv(uploaded_file) if uploaded_file.name.lower().endswith(".csv")
-                       else pd.read_excel(uploaded_file))
-        df_uploaded = preprocess_uploaded_data(df_uploaded)
+        df_uploaded_raw = (pd.read_csv(uploaded_file) if uploaded_file.name.lower().endswith(".csv")
+                           else pd.read_excel(uploaded_file))
+        original_input_columns = list(df_uploaded_raw.columns)
+        df_uploaded = preprocess_uploaded_data(df_uploaded_raw)
 
         # 对齐特征列
         df_input = df_uploaded.copy()
@@ -1217,17 +1197,82 @@ if uploaded_file is not None:
             p2unk[empty2.values] = 1.0
 
         # -------------------- 结果表 + batch overview --------------------
-        df_display = df_uploaded.copy().reset_index(drop=True)
-        df_display.insert(0, "Index", df_display.index + 1)
-        df_display.insert(1, "Level1_Pred", display_level1_array(pred1_label))
-        df_display.insert(2, "Level2_Pred", display_level2_array(pred2_label))
+        # Keep preprocessing helper columns internal. The user-facing table contains only:
+        # sample information, model predictions, uploaded analytical data, final calculated
+        # parameters, and class probabilities.
+        df_base = df_uploaded.copy().reset_index(drop=True)
+
+        INTERNAL_ONLY_COLUMNS = {
+            "FeOre", "Fe2O3re", "Fe2_frac", "Fe3_frac", "FeO_total"
+        }
+        CALCULATED_ALWAYS = ["Cr#", "Mg#", "Fe*", "TAC"]
+        CALCULATED_IF_NOT_INPUT = ["FeO", "Fe2O3"]
+        RESERVED_OUTPUT_COLUMNS = {"Index", "Level1_Pred", "Level2_Pred"}
+
+        def _looks_like_analytical_input(col) -> bool:
+            s = str(col).strip()
+            if s in {"FeOT", "Total"}:
+                return True
+            # Covers common oxide-style names such as MgO, Al2O3, TiO2, V2O3, NiO, etc.
+            return bool(re.fullmatch(r"[A-Z][A-Za-z0-9]*O(?:\d+)?", s))
+
+        original_clean = [
+            c for c in original_input_columns
+            if c in df_base.columns
+            and str(c) not in INTERNAL_ONLY_COLUMNS
+            and str(c) not in RESERVED_OUTPUT_COLUMNS
+            and str(c) not in CALCULATED_ALWAYS
+        ]
+
+        input_analytical_cols = [c for c in original_clean if _looks_like_analytical_input(c)]
+        sample_info_cols = [c for c in original_clean if c not in input_analytical_cols]
+
+        calculated_cols = []
+        for c in CALCULATED_IF_NOT_INPUT:
+            if c in df_base.columns and c not in original_input_columns:
+                calculated_cols.append(c)
+        for c in CALCULATED_ALWAYS:
+            if c in df_base.columns:
+                calculated_cols.append(c)
+
+        # Build the visible table in a scientifically intuitive order.
+        df_display = pd.DataFrame(index=df_base.index)
+        df_display["Index"] = df_base.index + 1
+        for c in sample_info_cols:
+            df_display[c] = df_base[c]
+
+        df_display["Level1_Pred"] = display_level1_array(pred1_label)
+        df_display["Level2_Pred"] = display_level2_array(pred2_label)
+
+        for c in input_analytical_cols:
+            df_display[c] = df_base[c]
+        for c in calculated_cols:
+            df_display[c] = df_base[c]
+
+        prob1_cols = []
         for i, c in enumerate(classes1):
-            df_display[f"P_Level1_{display_level1_label(c)}"] = np.round(prob1_use[:, i].astype(float), 6)
+            col_name = f"P_Level1_{display_level1_label(c)}"
+            df_display[col_name] = prob1_use[:, i].astype(float)
+            prob1_cols.append(col_name)
 
+        prob2_cols = []
         for i, c in enumerate(classes2):
-            df_display[f"P_Level2_{display_level2_label(c)}"] = np.round(prob2_full[:, i].astype(float), 6)
+            col_name = f"P_Level2_{display_level2_label(c)}"
+            df_display[col_name] = prob2_full[:, i].astype(float)
+            prob2_cols.append(col_name)
 
-        # 组内多数票 + 均值概率（先计算，让主要结果出现在大表之前）
+        # Column groups used for the first row of the downloaded Prediction worksheet.
+        prediction_excel_groups = [
+            ("Sample information", ["Index"] + [str(c) for c in sample_info_cols]),
+            ("Model predictions", ["Level1_Pred", "Level2_Pred"]),
+            ("Input analytical data", [str(c) for c in input_analytical_cols]),
+            ("Calculated parameters", [str(c) for c in calculated_cols]),
+            ("Level 1 class probabilities", prob1_cols),
+            ("Level 2 class probabilities", prob2_cols),
+        ]
+
+        # Group-level statistics are still used by the optional data-sharing panel,
+        # but are no longer repeated as columns in the analytical/probability table.
         l1_label, l1_share, l1_mean = level_group_stats(
             labels=pred1_label, classes=classes1, prob_by_class=prob1_use,
             p_max=p1max, p_unknown=None, fill_unknown_for_empty=False
@@ -1238,19 +1283,14 @@ if uploaded_file is not None:
             p_max=p2max, p_unknown=p2unk, fill_unknown_for_empty=True
         )
 
-        df_display["L1_TopShare"]    = l1_share
-        df_display["L1_TopMeanProb"] = round(l1_mean, 6)
-        df_display["L2_TopShare"]    = l2_share
-        df_display["L2_TopMeanProb"] = round(l2_mean, 6)
-
         # -------------------- Compact prediction table --------------------
         st.subheader("🧾 Prediction Results")
         df_preview = pd.DataFrame({
             "Index": df_display["Index"],
             "Level 1 prediction": df_display["Level1_Pred"],
-            "Level 1 predicted probability": np.round(p1max, 6),
+            "Level 1 predicted probability": p1max,
             "Level 2 prediction": df_display["Level2_Pred"],
-            "Level 2 predicted probability": np.round(p2max, 6),
+            "Level 2 predicted probability": p2max,
         })
         render_big_scroll_table(df_preview, height=320, font_px=21)
 
@@ -1504,213 +1544,6 @@ if uploaded_file is not None:
             download_key="download_distribution_level2"
         )
 
-        # -------------------- SHAP：tabs 横向滚动 + 两列并排 --------------------
-        st.subheader("📈 SHAP Interpretability")
-        st.caption("Feature contributions to class predictions. Switch between global importance bars and beeswarm views.")
-        st.markdown("""
-        <style>
-        div[data-testid="stTabs"] [data-baseweb="tab-list"]{
-            display:flex!important;
-            flex-wrap:nowrap!important;
-            overflow-x:scroll!important;
-            overflow-y:hidden!important;
-            white-space:nowrap!important;
-            scrollbar-width:auto!important;
-            scrollbar-color:#7c8795 #e9edf2!important;
-            scrollbar-gutter:stable!important;
-            padding-bottom:10px!important;
-        }
-        div[data-testid="stTabs"] [data-baseweb="tab"]{
-            flex:0 0 auto!important;
-            white-space:nowrap!important;
-            padding:10px 16px!important;
-            margin:0 3px!important;
-            font-size:25.5px!important;
-        }
-        div[data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar{
-            display:block!important;
-            height:12px!important;
-        }
-        div[data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar-thumb{
-            background:#7c8795!important;
-            border-radius:8px!important;
-            border:2px solid #e9edf2!important;
-        }
-        div[data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar-track{
-            background:#e9edf2!important;
-            border-radius:8px!important;
-        }
-        .stRadio label {font-size:19.5px!important;}
-        .stRadio [role="radiogroup"] label p {font-size:19.5px!important;}
-        div[data-testid="stMarkdownContainer"] h4 {
-            font-size:25.5px!important;
-            margin-bottom:0.5rem!important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
-        TOP_K = 13
-        st.markdown("<div style='font-size:21px;font-weight:600;margin-bottom:10px;'>Per-class SHAP view</div>", unsafe_allow_html=True)
-        chart_kind = st.radio(
-            "Per-class SHAP view",
-            ["Bar (mean |SHAP|)", "Beeswarm"],
-            horizontal=True,
-            index=0,
-            label_visibility="collapsed"
-        )
-
-        def _safe_class_names(m):
-            try:
-                return [str(x) for x in list(getattr(m, "classes_", []))]
-            except Exception:
-                return []
-
-        def _show_shap_fig_compact(fig):
-            # 新版 Streamlit 用 width="content"，旧版则回退到 use_container_width=False。
-            # 这样 Matplotlib 图保持自己的尺寸，不再自动铺满整列。
-            try:
-                st.pyplot(fig, width="content")
-            except TypeError:
-                st.pyplot(fig, use_container_width=False)
-
-
-        # ===== 统计图统一画布 / 字体 / 网页显示尺寸 =====
-        STATS_FIGSIZE = (7.2, 4.9)   # 四张图完全相同，稍微放宽以容纳 legend
-        STATS_DPI = 120
-        STATS_DISPLAY_WIDTH = 680    # 网页上四张图完全相同宽度
-        STATS_FONT = 17
-        STATS_TITLE_FONT = 20
-
-        def _stats_png_bytes(fig):
-            buf = BytesIO()
-            # 不使用 bbox_inches="tight"，避免不同内容导致最终图片尺寸变化
-            fig.savefig(
-                buf,
-                format="png",
-                dpi=STATS_DPI,
-                bbox_inches=None,
-                facecolor="white"
-            )
-            buf.seek(0)
-            return buf.getvalue()
-
-        def _show_fixed_stats_fig(fig, title):
-            png = _stats_png_bytes(fig)
-            st.image(png, width=STATS_DISPLAY_WIDTH)
-            st.download_button(
-                "⬇️ Download PNG",
-                png,
-                file_name=f"{title.replace(' · ','_').replace(' ','_')}.png",
-                mime="image/png"
-            )
-
-        def _bar_per_class(shap_vals_1class, X, title, top_k=TOP_K):
-            mean_abs = np.mean(np.abs(shap_vals_1class), axis=0).reshape(-1)
-            order = np.argsort(mean_abs); k = min(top_k, len(order))
-            sel = order[-k:]
-            feats = np.array(display_feature_labels(X.columns))[sel]
-            vals  = mean_abs[sel]
-
-            # 紧凑版：保留 13 个特征，但不让图占满整个网页。
-            fig, ax = plt.subplots(figsize=(5.8*chart_scale, 4.3*chart_scale))
-            ax.barh(np.arange(len(vals)), vals)
-            ax.set_yticks(np.arange(len(vals)))
-            ax.set_yticklabels(feats, fontsize=7.5)
-            ax.tick_params(axis="x", labelsize=7.5)
-            ax.set_xlabel("mean |SHAP|", fontsize=8.25)
-            ax.set_title(title, fontsize=9, pad=8)
-            fig.tight_layout(pad=0.9)
-            _show_shap_fig_compact(fig)
-            plt.close(fig)
-
-        def _sv_to_list_per_class(sv, X, class_names):
-            N, F = X.shape
-            if isinstance(sv, list):
-                return [np.asarray(a).reshape(N, F) for a in sv]
-            arr = np.asarray(sv)
-            if arr.ndim == 2:
-                r, c = arr.shape
-                if r == N and c == F:
-                    if class_names and len(class_names) == 2: return [-arr, arr]
-                    return [arr]
-                if r == N and c % F == 0:
-                    C = c // F; return [arr[:, i*F:(i+1)*F].reshape(N, F) for i in range(C)]
-                if c == F and r % N == 0:
-                    C = r // N; return [arr[i*N:(i+1)*N, :].reshape(N, F) for i in range(C)]
-                if class_names and arr.size == N*F*len(class_names):
-                    C = len(class_names)
-                    try:    tmp = arr.reshape(N, F, C); return [tmp[:, :, i] for i in range(C)]
-                    except:
-                        try: tmp = arr.reshape(C, N, F); return [tmp[i, :, :] for i in range(C)]
-                        except: pass
-                return [arr.reshape(N, F)]
-            if arr.ndim == 3:
-                if arr.shape[0] == N and arr.shape[1] == F:
-                    C = arr.shape[2]; return [arr[:, :, i].reshape(N, F) for i in range(C)]
-                if arr.shape[1] == N and arr.shape[2] == F:
-                    C = arr.shape[0]; return [arr[i, :, :].reshape(N, F) for i in range(C)]
-                if arr.shape[0] == N and arr.shape[2] == F:
-                    C = arr.shape[1]; return [arr[:, i, :].reshape(N, F) for i in range(C)]
-            return [arr.reshape(N, F)]
-
-        def _render_per_class(model, level_name, X):
-            explainer = _make_explainer_cached(_model_signature(model), _model=model)
-            raw_sv = explainer.shap_values(X)
-            class_names_internal = _safe_class_names(model)
-            sv_list = _sv_to_list_per_class(raw_sv, X, class_names_internal)
-            if not class_names_internal or len(class_names_internal) != len(sv_list):
-                class_names_internal = [f"class {i}" for i in range(len(sv_list))]
-                if len(sv_list) == 2:
-                    class_names_internal = ["negative", "positive"]
-
-            # 仅替换显示名称；SHAP 数组顺序仍与模型 classes_ 完全一致
-            if level_name == "Level2":
-                class_names = [display_level2_label(x) for x in class_names_internal]
-            elif level_name == "Level1":
-                class_names = [display_level1_label(x) for x in class_names_internal]
-            else:
-                class_names = class_names_internal
-            # Use concise Level-2 tab labels (EOC, CC, A-L, HED-Mes, Win-IAB, etc.)
-            # while keeping the full display name available for the figure title.
-            tab_labels = ([_short_chart_label(x) for x in class_names]
-                          if level_name == "Level2" else class_names)
-            tabs = st.tabs(tab_labels)
-            for tab, cname, arr in zip(tabs, class_names, sv_list):
-                with tab:
-                    if chart_kind.startswith("Bar"):
-                        _bar_per_class(arr, X, title=f"{level_name} · {cname}", top_k=TOP_K)
-                    else:
-                        X_disp = X.copy()
-                        X_disp.columns = display_feature_labels(X.columns)
-                        shap.summary_plot(arr, X_disp, max_display=TOP_K, show=False)
-                        fig = plt.gcf()
-                        fig.set_size_inches(5.8*chart_scale, 4.3*chart_scale, forward=True)
-                        ax = plt.gca()
-                        ax.tick_params(axis="both", labelsize=7.5)
-                        ax.set_xlabel(ax.get_xlabel(), fontsize=8.25)
-                        ax.set_ylabel(ax.get_ylabel(), fontsize=8.25)
-                        plt.title(f"{level_name} · {cname}", fontsize=9, pad=8)
-                        # SHAP may create a colorbar as a second axes; enlarge its text too.
-                        if len(fig.axes) > 1:
-                            for extra_ax in fig.axes[1:]:
-                                extra_ax.tick_params(labelsize=7.5)
-                                extra_ax.yaxis.label.set_size(7.5)
-                        plt.tight_layout(pad=0.9)
-                        _show_shap_fig_compact(fig)
-                        plt.close(fig)
-
-        # 两侧留白 + 中间留白，不让两张图把整行塞满。
-        shap_layout = st.columns([1.10, 2.70, 1.10, 2.70, 1.10], gap="small")
-        cols_shap = [shap_layout[1], shap_layout[3]]
-        X_map = {"Level1": df_input_L1, "Level2": df_input_L2}
-        for col, (mdl, nm) in zip(cols_shap, [(model_lvl1, "Level1"), (model_lvl2, "Level2")]):
-            with col:
-                # A light card border separates the two analysis panels without adding a distracting background color.
-                with st.container(border=True):
-                    st.markdown(f"#### 🔍 {nm} (per class)")
-                    _render_per_class(mdl, nm, X_map[nm])
-
-
         # -------------------- 自愿数据分享（默认折叠） --------------------
         with st.expander(
             "Would you like to share your data with us to help expand the database and improve future model retraining?",
@@ -1792,7 +1625,7 @@ if uploaded_file is not None:
 
                 st.success(
                     f"Group result → **{final_level}: {final_label_display}**  |  "
-                    f"Mean probability: **{final['prob']:.6f}**  |  "
+                    f"Mean probability: **{final['prob']:.3f}**  |  "
                     f"Share: **{final['agree']}/{final['total']} ({final['share']:.0%})**"
                 )
 
@@ -1801,13 +1634,13 @@ if uploaded_file is not None:
                         "Level": "Level1",
                         "Top class": display_level1_label(l1_label),
                         "Share": l1_share,
-                        "Mean prob": round(l1_mean, 6)
+                        "Mean prob": round(l1_mean, 3)
                     },
                     {
                         "Level": "Level2",
                         "Top class": display_level2_label(l2_label),
                         "Share": l2_share,
-                        "Mean prob": round(l2_mean, 6)
+                        "Mean prob": round(l2_mean, 3)
                     },
                 ]
                 render_big_scroll_table(pd.DataFrame(rows), height=220, font_px=21)
@@ -1919,14 +1752,39 @@ if uploaded_file is not None:
         # -------------------- 结果下载（Prediction + Summary） --------------------
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            # 预测页（包含 OOD 列）
-            _round_float_columns(df_display, 6).to_excel(writer, index=False, sheet_name='Prediction')
+            # Prediction: row 1 is a grouped header; row 2 contains the actual column names.
+            df_prediction_export = _round_float_columns(df_display, 3)
+            df_prediction_export.to_excel(
+                writer, index=False, sheet_name='Prediction', startrow=1
+            )
 
-            # 导出 Level1 / Level2 汇总
+            workbook = writer.book
+            ws_pred = writer.sheets['Prediction']
+            group_fmt = workbook.add_format({
+                'bold': True, 'align': 'center', 'valign': 'vcenter',
+                'border': 1, 'bg_color': '#E9EEF5'
+            })
+
+            col_positions = {str(c): i for i, c in enumerate(df_prediction_export.columns)}
+            for group_name, group_cols in prediction_excel_groups:
+                present = [c for c in group_cols if c in col_positions]
+                if not present:
+                    continue
+                first_col = min(col_positions[c] for c in present)
+                last_col = max(col_positions[c] for c in present)
+                if first_col == last_col:
+                    ws_pred.write(0, first_col, group_name, group_fmt)
+                else:
+                    ws_pred.merge_range(0, first_col, 0, last_col, group_name, group_fmt)
+
+            ws_pred.set_row(0, 22)
+            ws_pred.freeze_panes(2, 0)
+
+            # Export Level 1 / Level 2 summaries.
             df_l1_export = df_l1.copy(); df_l1_export.insert(0, "Level", "Level1")
             df_l2_export = df_l2.copy(); df_l2_export.insert(0, "Level", "Level2")
-            _round_float_columns(df_l1_export, 6).to_excel(writer, index=False, sheet_name='Summary_L1')
-            _round_float_columns(df_l2_export, 6).to_excel(writer, index=False, sheet_name='Summary_L2')
+            _round_float_columns(df_l1_export, 3).to_excel(writer, index=False, sheet_name='Summary_L1')
+            _round_float_columns(df_l2_export, 3).to_excel(writer, index=False, sheet_name='Summary_L2')
 
         with download_predictions_placeholder:
             st.download_button(
