@@ -858,6 +858,7 @@ def render_big_scroll_table(
         html_table = html_table.replace('<thead>', '<thead>' + group_header_html, 1)
 
     second_header_top = max(31, int(round(font_px * 1.35 + 18))) if has_group_header else 0
+    group_header_font_px = font_px + 3
 
     html_doc = f"""
     <!doctype html>
@@ -876,10 +877,10 @@ def render_big_scroll_table(
             width: 100%;
             height: {height}px;
             overflow: auto;
-            border: 1px solid #9dbad7;
-            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+            border-radius: 7px;
             box-sizing: border-box;
-            background: #fafdff;
+            background: white;
         }}
 
         table.big-scroll-table {{
@@ -888,21 +889,21 @@ def render_big_scroll_table(
             width: max-content;
             min-width: 100%;
             font-size: {font_px}px;
-            line-height: 1.38;
+            line-height: 1.35;
         }}
 
         table.big-scroll-table thead tr:not(.group-header) th {{
             position: sticky;
             top: {second_header_top}px;
             z-index: 3;
-            background: #dcecff;
+            background: #f6f7f9;
             font-size: {font_px}px;
-            font-weight: 650;
-            color: #1f3d5a;
+            font-weight: 600;
+            color: #30343b;
             white-space: nowrap;
-            padding: 10px 13px;
-            border-bottom: 1px solid #94b6d6;
-            border-right: 1px solid #aac6df;
+            padding: 9px 12px;
+            border-bottom: 1px solid #d9dde3;
+            border-right: 1px solid #eceff3;
             text-align: left;
         }}
 
@@ -910,39 +911,29 @@ def render_big_scroll_table(
             position: sticky;
             top: 0;
             z-index: 4;
-            background: #cfe4fb;
-            font-size: {font_px}px;
-            font-weight: 700;
-            color: #183b5b;
+            background: #e9eef5;
+            font-size: {group_header_font_px}px;
+            font-weight: 800;
+            color: #334155;
             white-space: nowrap;
-            padding: 10px 13px;
-            border-bottom: 1px solid #85abd2;
-            border-right: 1px solid #9dbad7;
+            padding: 10px 12px;
+            border-bottom: 1px solid #cfd8e3;
+            border-right: 1px solid #d8e0ea;
             text-align: center;
         }}
 
         table.big-scroll-table td {{
             font-size: {font_px}px;
-            color: #243443;
+            color: #30343b;
             white-space: nowrap;
-            padding: 10px 13px;
-            border-bottom: 1px solid #c8d9ea;
-            border-right: 1px solid #d4e1ee;
+            padding: 9px 12px;
+            border-bottom: 1px solid #eceff3;
+            border-right: 1px solid #f1f3f5;
             text-align: left;
-            background: #f8fbff;
         }}
 
         table.big-scroll-table tbody tr:nth-child(even) td {{
-            background: #eef6ff;
-        }}
-
-        table.big-scroll-table th:first-child,
-        table.big-scroll-table td:first-child {{
-            border-left: 1px solid #b7cde3;
-        }}
-
-        table.big-scroll-table thead tr:first-child th {{
-            border-top: 1px solid #9dbad7;
+            background: #fbfbfc;
         }}
     </style>
     </head>
