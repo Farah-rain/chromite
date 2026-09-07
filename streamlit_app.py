@@ -1300,15 +1300,17 @@ if uploaded_file is not None:
         for c in calculated_cols:
             df_display[c] = df_base[c]
 
+        # Probability columns sit under grouped headers, so the detailed labels can stay concise.
+        # Keep Level 1 as simple class names; use established abbreviations for Level 2 where available.
         prob1_cols = []
         for i, c in enumerate(classes1):
-            col_name = f"P_Level1_{display_level1_label(c)}"
+            col_name = str(display_level1_label(c)).strip().capitalize()
             df_display[col_name] = prob1_use[:, i].astype(float)
             prob1_cols.append(col_name)
 
         prob2_cols = []
         for i, c in enumerate(classes2):
-            col_name = f"P_Level2_{display_level2_label(c)}"
+            col_name = _short_chart_label(display_level2_label(c))
             df_display[col_name] = prob2_full[:, i].astype(float)
             prob2_cols.append(col_name)
 
