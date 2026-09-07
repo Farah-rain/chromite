@@ -590,6 +590,9 @@ def display_level2_label(label):
     if pd.isna(label):
         return label
     raw = str(label).strip()
+    # Normalize Unicode Roman numeral I (Ⅰ/ⅰ) to the ordinary Latin letter I.
+    # This keeps every IAB label visually consistent: IAB / Win-IAB.
+    raw = raw.replace("Ⅰ", "I").replace("ⅰ", "i")
     return LEVEL2_DISPLAY_MAP.get(raw.casefold(), raw)
 
 def display_level1_array(labels):
@@ -607,7 +610,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: grouped-web-export-no-shap-v47-3DP")
+    st.caption("Build: grouped-web-export-no-shap-v48-IAB-normalized")
 
     
     @st.cache_resource
