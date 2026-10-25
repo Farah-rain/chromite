@@ -610,7 +610,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: grouped-web-export-no-shap-v48-IAB-normalized")
+    st.caption("Build: strict-missing-no-knn-inline-png-v50")
 
     
     @st.cache_resource
@@ -652,71 +652,13 @@ def load_calibrator_and_threshold(level_name: str):
 calib_L1, thr_L1 = load_calibrator_and_threshold("Level1")
 
 calib_L2, thr_L2 = load_calibrator_and_threshold("Level2")
-# ✅ NEW: 载入 KNNImputer（训练阶段保存的）
-imp_L1 = _load_joblib_pair("models/knn_imputer_Level1.joblib", "knn_imputer_Level1.joblib")
-imp_L2 = _load_joblib_pair("models/knn_imputer_Level2.joblib", "knn_imputer_Level2.joblib")
-def _load_imputer_cols(level_name: str):
-    p1 = f"models/knn_imputer_{level_name}_columns.json"
-    p2 = f"knn_imputer_{level_name}_columns.json"
-    p = p1 if os.path.exists(p1) else p2
-    if os.path.exists(p):
-        import json
-        with open(p, "r", encoding="utf-8") as f:
-            cols = json.load(f)
-        return [str(c) for c in cols]
-    return None
+# -------------------- 缺失值处理 --------------------
+# Do NOT impute missing analytical values at website inference time.
+# LightGBM handles NaN natively: when a feature such as MnO or V2O3 is missing,
+# the sample follows the learned missing-value branch for that feature and the
+# prediction is determined from the remaining available features.
+# IMPORTANT: NaN is intentionally preserved; it is not replaced by 0 or by KNN estimates.
 
-def _expected_n_features(imp):
-    if imp is None:
-        return None
-    if hasattr(imp, "n_features_in_"):
-        try:
-            return int(getattr(imp, "n_features_in_"))
-        except Exception:
-            pass
-    if hasattr(imp, "statistics_"):
-        try:
-            return int(len(getattr(imp, "statistics_")))
-        except Exception:
-            pass
-    return None
-
-def _apply_imputer_strict(dfX: pd.DataFrame, imp, level_name: str, fallback_cols: list[str]):
-    """
-    1) 优先用训练时保存的 columns.json 来固定列顺序
-    2) 若没有 columns.json，则用 feature_list（fallback_cols）
-    3) 若列数与 imputer 期望不一致 -> 直接 stop（避免错位）
-    4) 若 imp=None -> 用上传数据临时 fit 一个 KNNImputer 兜底（会提示）
-    """
-    # 目标列顺序：优先 columns.json，其次 feature_list
-    cols = _load_imputer_cols(level_name) or list(fallback_cols)
-
-    # 对齐列：reindex 会自动补缺失列为 NaN、丢弃多余列，并按 cols 排序
-    dfX_aligned = dfX.reindex(columns=cols)
-    dfX_aligned = dfX_aligned.apply(pd.to_numeric, errors="coerce")
-
-    # 没有 imputer -> 临时兜底（不崩，但会提示）
-    if imp is None:
-        st.warning(f"⚠️ {level_name}: saved KNNImputer not found. Using a temporary KNNImputer fitted on uploaded data (results may be less stable).")
-        from sklearn.impute import KNNImputer
-        imp_tmp = KNNImputer(n_neighbors=5, weights="distance")
-        arr = imp_tmp.fit_transform(dfX_aligned)
-        return pd.DataFrame(arr, columns=cols, index=dfX.index)
-
-    # 有 imputer -> 检查列数一致性（不一致就停）
-    exp_n = _expected_n_features(imp)
-    if exp_n is not None and exp_n != len(cols):
-        st.error(
-            f"❌ {level_name}: imputer expects {exp_n} features, but current aligned columns = {len(cols)}.\n"
-            f"    This usually means your website feature_list / columns.json does NOT match training.\n"
-            f"    Please regenerate and upload matching knn_imputer_{level_name}_columns.json (recommended) "
-            f"or ensure feature_list is identical to training."
-        )
-        st.stop()
-
-    # 正常 transform
-    arr = imp.transform(dfX_aligned)
-    return pd.DataFrame(arr, columns=cols, index=dfX.index)
 # 载入 Tukey 区间（若存在）
 #q_low_L2  = _load_joblib_pair("models/q_low_Level2.joblib",  "q_low_Level2.joblib")
 #q_high_L2 = _load_joblib_pair("models/q_high_Level2.joblib", "q_high_Level2.joblib")
@@ -778,6 +720,38 @@ def _save_fig_as_png_bytes(fig, dpi=220):
     fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
     buf.seek(0)
     return buf.getvalue()
+
+def _render_inline_png_with_download(png_bytes: bytes, file_name: str):
+    """Render a PNG and its download link without Streamlit's temporary /media route."""
+    png_signature = b"\x89PNG\r\n\x1a\n"
+    if not isinstance(png_bytes, (bytes, bytearray)) or not bytes(png_bytes).startswith(png_signature):
+        st.error("The figure could not be encoded as a valid PNG.")
+        return
+
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(file_name)).strip("_") or "figure.png"
+    if not safe_name.lower().endswith(".png"):
+        safe_name += ".png"
+
+    img_b64 = base64.b64encode(bytes(png_bytes)).decode("ascii")
+    html = f'''
+    <div style="width:100%;">
+        <img
+            src="data:image/png;base64,{img_b64}"
+            alt="classification figure"
+            style="width:100%;height:auto;display:block;"
+        />
+        <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+            <a
+                href="data:image/png;base64,{img_b64}"
+                download="{safe_name}"
+                style="display:inline-flex;align-items:center;gap:0.45rem;padding:0.45rem 0.75rem;
+                       border:1px solid #d0d7de;border-radius:0.5rem;background:#ffffff;color:#262730;
+                       text-decoration:none;font-size:15px;line-height:1.2;"
+            >⬇️ Download PNG</a>
+        </div>
+    </div>
+    '''
+    st.markdown(html, unsafe_allow_html=True)
 
 def _short_chart_label(label):
     """Use the abbreviation inside the last parentheses when available."""
@@ -986,33 +960,55 @@ def preprocess_uploaded_data(df):
     # ===== 情况 2：只有 FeOT，需要从 FeOT 拆成 FeO + Fe2O3 =====
     else:
         def fe_split_spinel(row, O_basis=32):
-            # 把各种 None/"None"/""/NaN 统一转成 0.0（仅用于 FeOT 拆分这一步）
-            def _num0(v):
+            # Missing major analytical values must remain genuinely missing.
+            # In particular, MnO or V2O3 must NEVER be silently interpreted as 0
+            # for the Fe-valence recalculation.
+            def _num_or_nan(v):
                 v = pd.to_numeric(v, errors="coerce")
-                return 0.0 if pd.isna(v) else float(v)
+                return np.nan if pd.isna(v) else float(v)
 
-            feot = pd.to_numeric(row.get("FeOT", np.nan), errors="coerce")
-            if pd.isna(feot):
-                # 没 FeOT 就没法拆
+            def _empty_fe_split():
                 return pd.Series({
                     "FeOre": np.nan, "Fe2O3re": np.nan,
                     "Fe2_frac": np.nan, "Fe3_frac": np.nan,
                     "FeO_total": np.nan
                 })
 
-            # 其它氧化物：缺失按 0 参与（否则 O_total 会 NaN 直接全崩）
-            wt = {ox: _num0(row.get(ox, 0.0)) for ox in MW if ox != "FeO"}
+            feot = _num_or_nan(row.get("FeOT", np.nan))
+            if pd.isna(feot):
+                return _empty_fe_split()
+
+            # These major oxides are required before a stoichiometric Fe2+/Fe3+
+            # split is attempted. If any one is unavailable, do not invent a value;
+            # leave the Fe-speciation-derived parameters as NaN.
+            required_for_fe_split = (
+                "TiO2", "Al2O3", "Cr2O3", "MnO", "MgO", "V2O3"
+            )
+            required_vals = {
+                ox: _num_or_nan(row.get(ox, np.nan))
+                for ox in required_for_fe_split
+            }
+            if any(pd.isna(v) for v in required_vals.values()):
+                return _empty_fe_split()
+
+            # Preserve the previous treatment of optional minor components (ZnO, SiO2)
+            # for backward compatibility. They are not used to replace missing MnO/V2O3.
+            wt = {}
+            for ox in MW:
+                if ox == "FeO":
+                    continue
+                if ox in required_vals:
+                    wt[ox] = required_vals[ox]
+                else:
+                    v = _num_or_nan(row.get(ox, np.nan))
+                    wt[ox] = 0.0 if pd.isna(v) else v
 
             moles = {ox: wt[ox] / MW[ox] for ox in wt}
             moles["FeO"] = float(feot) / MW["FeO"]
 
             O_total = sum(moles[ox] * O_num[ox] for ox in moles)
             if (not np.isfinite(O_total)) or (O_total <= 0):
-                return pd.Series({
-                    "FeOre": np.nan, "Fe2O3re": np.nan,
-                    "Fe2_frac": np.nan, "Fe3_frac": np.nan,
-                    "FeO_total": np.nan
-                })
+                return _empty_fe_split()
 
             fac = O_basis / O_total
             cations = {ox: moles[ox] * Cat_num[ox] * fac for ox in moles}
@@ -1020,11 +1016,7 @@ def preprocess_uploaded_data(df):
             T = 24.0
 
             if (not np.isfinite(S)) or (S <= 0) or (not np.isfinite(cations["FeO"])) or (cations["FeO"] <= 0):
-                return pd.Series({
-                    "FeOre": np.nan, "Fe2O3re": np.nan,
-                    "Fe2_frac": np.nan, "Fe3_frac": np.nan,
-                    "FeO_total": np.nan
-                })
+                return _empty_fe_split()
 
             Fe_total = cations["FeO"]
             Fe3 = max(0.0, 2 * O_basis * (1 - T / S))
@@ -1051,15 +1043,16 @@ def preprocess_uploaded_data(df):
         
         df["FeO"]   = df["FeOre"]
         df["Fe2O3"] = df["Fe2O3re"]
-        
-    den = (df["TiO2"] + df["Al2O3"] + df["Cr2O3"])
-    df["TAC"] = np.where(den > 0, df["TiO2"] / den, np.nan)
-  
+
+    # Make absent analytical columns explicit NaN before calculating any derived feature.
+    # Missing means unavailable; it is not equivalent to a measured zero.
     for ox in MW:
         if ox not in df.columns:
             df[ox] = np.nan
 
-   
+    den = (df["TiO2"] + df["Al2O3"] + df["Cr2O3"])
+    df["TAC"] = np.where(den > 0, df["TiO2"] / den, np.nan)
+
     mol_wt = {'Cr2O3':151.99,'Al2O3':101.961,'MgO':40.304,'FeO':71.844,'Fe2O3':159.688}
     Cr_mol = df["Cr2O3"]/mol_wt["Cr2O3"]*2
     Al_mol = df["Al2O3"]/mol_wt["Al2O3"]*2
@@ -1191,9 +1184,11 @@ if uploaded_file is not None:
         for col in feature_list:
             if col not in df_input.columns: df_input[col] = np.nan
         df_input = to_numeric_df(df_input[feature_list])
-        # ✅ 严格对齐列顺序 + 填充缺失值（每个 Level 用自己的 imputer）
-        df_input_L1 = _apply_imputer_strict(df_input, imp_L1, "Level1", fallback_cols=feature_list)
-        df_input_L2 = _apply_imputer_strict(df_input, imp_L2, "Level2", fallback_cols=feature_list)
+        # Keep missing analytical values as NaN.
+        # LightGBM natively handles missing values, so MnO / V2O3 (or another
+        # unavailable feature) is NOT estimated with KNN and is NOT replaced by 0.
+        df_input_L1 = df_input.copy()
+        df_input_L2 = df_input.copy()
 
 
         N = len(df_input)
@@ -1577,13 +1572,9 @@ if uploaded_file is not None:
                 fig.subplots_adjust(left=0.10, right=0.92, top=0.79, bottom=0.11)
 
                 png = _save_fig_as_png_bytes(fig, dpi=120)
-                st.image(png, width="stretch")
-                st.download_button(
-                    "⬇️ Download PNG",
+                _render_inline_png_with_download(
                     png,
                     file_name=f"{title.replace(' · ','_').replace(' ','_')}.png",
-                    mime="image/png",
-                    key=download_key
                 )
                 plt.close(fig)
 
