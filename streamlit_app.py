@@ -947,15 +947,23 @@ def preprocess_uploaded_data(df):
 
     # ===== 情况 1：用户已经分开给了 FeO 和 Fe2O3 =====
     if ("FeO" in orig_cols) and ("Fe2O3" in orig_cols):
-        # 确保是数值
+        # 用户上传的 FeO / Fe2O3 优先，直接作为实测值使用。
         df["FeO"]   = pd.to_numeric(df["FeO"],   errors="coerce")
         df["Fe2O3"] = pd.to_numeric(df["Fe2O3"], errors="coerce")
 
-        # 为后续 Fe* / Fe# 计算建一份带 “re” 后缀的复制列
+        # 为后续 Fe* / Mg# 计算建一份内部复制列。
         df["FeOre"]   = df["FeO"]
         df["Fe2O3re"] = df["Fe2O3"]
 
-        df["FeO_total"] = df["FeOre"] + df["Fe2O3re"] * 0.8998
+        # 将 Fe2O3 换算为 FeO equivalent，再与 FeO 相加得到 FeOT。
+        # 若用户同时也上传了 FeOT，则仍以用户值优先，只补其中的空单元格。
+        feot_from_split = df["FeOre"] + df["Fe2O3re"] * 0.8998
+        df["FeO_total"] = feot_from_split
+        if "FeOT" in orig_cols:
+            feot_user = pd.to_numeric(df["FeOT"], errors="coerce")
+            df["FeOT"] = feot_user.where(feot_user.notna(), feot_from_split)
+        else:
+            df["FeOT"] = feot_from_split
 
     # ===== 情况 2：只有 FeOT，需要从 FeOT 拆成 FeO + Fe2O3 =====
     else:
@@ -1053,8 +1061,13 @@ def preprocess_uploaded_data(df):
         if ox not in df.columns:
             df[ox] = np.nan
 
+    # ===== 衍生参数：用户上传值优先，只计算/填补缺失单元格 =====
+    # 这样网站不会悄悄覆盖用户自己已经给出的 Cr# / Mg# / Fe* / TAC。
     den = (df["TiO2"] + df["Al2O3"] + df["Cr2O3"])
-    df["TAC"] = np.where(den > 0, df["TiO2"] / den, np.nan)
+    tac_calc = pd.Series(
+        np.where(den > 0, df["TiO2"] / den, np.nan),
+        index=df.index, dtype=float
+    )
 
     mol_wt = {'Cr2O3':151.99,'Al2O3':101.961,'MgO':40.304,'FeO':71.844,'Fe2O3':159.688}
     Cr_mol = df["Cr2O3"]/mol_wt["Cr2O3"]*2
@@ -1063,9 +1076,23 @@ def preprocess_uploaded_data(df):
     Fe2_mol = df["FeO"]/mol_wt["FeO"]
     Fe3_mol = df["Fe2O3"]/mol_wt["Fe2O3"]*2
 
-    df["Cr#"] = Cr_mol / (Cr_mol + Al_mol)
-    df["Mg#"] = Mg_mol / (Mg_mol + Fe2_mol)
-    df["Fe*"] = Fe3_mol / (Fe3_mol + Cr_mol + Al_mol)
+    crnum_calc = Cr_mol / (Cr_mol + Al_mol)
+    mgnum_calc = Mg_mol / (Mg_mol + Fe2_mol)
+    festar_calc = Fe3_mol / (Fe3_mol + Cr_mol + Al_mol)
+
+    def _keep_user_value_else_fill(col_name, calculated):
+        calculated = pd.Series(calculated, index=df.index, dtype=float)
+        if col_name in orig_cols:
+            user_values = pd.to_numeric(df[col_name], errors="coerce")
+            # Existing numeric user values win. Only blank/non-numeric cells are filled.
+            df[col_name] = user_values.where(user_values.notna(), calculated)
+        else:
+            df[col_name] = calculated
+
+    _keep_user_value_else_fill("Cr#", crnum_calc)
+    _keep_user_value_else_fill("Mg#", mgnum_calc)
+    _keep_user_value_else_fill("Fe*", festar_calc)
+    _keep_user_value_else_fill("TAC", tac_calc)
     
    
 
@@ -1258,7 +1285,7 @@ if uploaded_file is not None:
             "FeOre", "Fe2O3re", "Fe2_frac", "Fe3_frac", "FeO_total"
         }
         CALCULATED_ALWAYS = ["Cr#", "Mg#", "Fe*", "TAC"]
-        CALCULATED_IF_NOT_INPUT = ["FeO", "Fe2O3"]
+        CALCULATED_IF_NOT_INPUT = ["FeO", "Fe2O3", "FeOT"]
         RESERVED_OUTPUT_COLUMNS = {"Index", "Level1_Pred", "Level2_Pred"}
 
         def _looks_like_analytical_input(col) -> bool:
