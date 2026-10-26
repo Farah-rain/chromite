@@ -978,11 +978,14 @@ def preprocess_uploaded_data(df):
             if pd.isna(feot):
                 return _empty_fe_split()
 
-            # These major oxides are required before a stoichiometric Fe2+/Fe3+
-            # split is attempted. If any one is unavailable, do not invent a value;
-            # leave the Fe-speciation-derived parameters as NaN.
+            # Fe-valence recalculation and ML missing-value handling are separate.
+            # The principal spinel-forming oxides below are required for the
+            # stoichiometric Fe2+/Fe3+ calculation. MnO and V2O3 are OPTIONAL here:
+            # if they were not measured, their contributions are simply omitted from
+            # the stoichiometric sum. Their original cells remain NaN and are passed
+            # to LightGBM as missing values (never KNN-imputed and never written as 0).
             required_for_fe_split = (
-                "TiO2", "Al2O3", "Cr2O3", "MnO", "MgO", "V2O3"
+                "TiO2", "Al2O3", "Cr2O3", "MgO"
             )
             required_vals = {
                 ox: _num_or_nan(row.get(ox, np.nan))
@@ -991,17 +994,17 @@ def preprocess_uploaded_data(df):
             if any(pd.isna(v) for v in required_vals.values()):
                 return _empty_fe_split()
 
-            # Preserve the previous treatment of optional minor components (ZnO, SiO2)
-            # for backward compatibility. They are not used to replace missing MnO/V2O3.
-            wt = {}
+            # Build the stoichiometric sum from analytical values that actually exist.
+            # Missing MnO/V2O3 (and other optional minor oxides) are skipped rather
+            # than being inserted into the dataframe as artificial zeros.
+            wt = dict(required_vals)
             for ox in MW:
-                if ox == "FeO":
+                if ox == "FeO" or ox in required_vals:
                     continue
-                if ox in required_vals:
-                    wt[ox] = required_vals[ox]
-                else:
-                    v = _num_or_nan(row.get(ox, np.nan))
-                    wt[ox] = 0.0 if pd.isna(v) else v
+                v = _num_or_nan(row.get(ox, np.nan))
+                if pd.isna(v):
+                    continue
+                wt[ox] = v
 
             moles = {ox: wt[ox] / MW[ox] for ox in wt}
             moles["FeO"] = float(feot) / MW["FeO"]
