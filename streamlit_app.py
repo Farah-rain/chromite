@@ -610,7 +610,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: strict-missing-no-knn-inline-png-v50")
+    st.caption("Build: calibrated-probabilities-no-cache-no-thresholds-v1")
 
     
     def load_model_and_metadata():
@@ -637,7 +637,39 @@ with st.sidebar:
         st.error("Failed to load models or feature columns.")
         st.exception(e)
 
-# 概率校准器和类别阈值文件均不加载。
+# -------------------- 概率校准器（不使用缓存） --------------------
+def _load_calibrator(level_name: str):
+    primary_path = f"models/calib_{level_name}.joblib"
+    fallback_path = f"calib_{level_name}.joblib"
+    calibrator_path = primary_path if os.path.exists(primary_path) else fallback_path
+    if not os.path.exists(calibrator_path):
+        raise FileNotFoundError(
+            f"Required probability calibrator not found: {primary_path} or {fallback_path}"
+        )
+    return joblib.load(calibrator_path)
+
+# 每次 Streamlit 脚本运行时直接加载校准器；不加载任何类别阈值文件。
+calib_L1 = _load_calibrator("Level1")
+calib_L2 = _load_calibrator("Level2")
+
+def apply_calibrators(proba: np.ndarray, classes: np.ndarray, calibrators: dict):
+    """Apply class-wise isotonic calibration, then normalize each probability row."""
+    calibrated = np.zeros_like(proba, dtype=float)
+    for j, cls in enumerate(classes):
+        calibrator = calibrators.get(str(cls)) if isinstance(calibrators, dict) else None
+        calibrated[:, j] = (
+            calibrator.transform(proba[:, j])
+            if calibrator is not None
+            else proba[:, j]
+        )
+
+    eps = 1e-12
+    row_sum = calibrated.sum(axis=1, keepdims=True)
+    calibrated = (calibrated + eps) / np.maximum(
+        row_sum + eps * calibrated.shape[1], eps
+    )
+    return calibrated
+
 # -------------------- 缺失值处理 --------------------
 # Do NOT impute missing analytical values at website inference time.
 # LightGBM handles NaN natively: when a feature such as MnO or V2O3 is missing,
@@ -1165,8 +1197,8 @@ if uploaded_file is not None:
         prob1 = model_lvl1.predict_proba(df_input_L1)
         classes1 = model_lvl1.classes_.astype(str)
 
-        # ===== RAW 概率（不进行概率校准）=====
-        prob1_use = prob1
+        # ===== 使用 IsotonicRegression 校准 Level 1 概率 =====
+        prob1_use = apply_calibrators(prob1, classes1, calib_L1)
 
         pred1_idx = np.argmax(prob1_use, axis=1)
         pred1_label = classes1[pred1_idx]
@@ -1184,8 +1216,8 @@ if uploaded_file is not None:
         if mask_lvl2.any():
             pr2 = model_lvl2.predict_proba(df_input_L2[mask_lvl2])
 
-            # ===== RAW 概率：不校准、不应用类别阈值，直接取最大概率类别 =====
-            pr2_use = pr2
+            # ===== 使用 IsotonicRegression 校准 Level 2 概率 =====
+            pr2_use = apply_calibrators(pr2, classes2, calib_L2)
             pred2_idx = np.argmax(pr2_use, axis=1)
             pred2_masked = classes2[pred2_idx]
             p2max_masked = pr2_use[np.arange(len(pred2_idx)), pred2_idx]
@@ -1195,7 +1227,7 @@ if uploaded_file is not None:
             p2max[mask_lvl2] = p2max_masked
             p2unk[mask_lvl2] = 1.0 - p2max_masked
 
-            # Level2：把 RAW 概率铺回 N 行（其余行填 0）
+            # Level2：把校准后的概率铺回 N 行（其余行填 0）
             prob2_full = np.zeros_like(prob2_raw, dtype=float)
             prob2_full[mask_lvl2] = pr2_use   
         else:
