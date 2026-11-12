@@ -613,7 +613,6 @@ with st.sidebar:
     st.caption("Build: strict-missing-no-knn-inline-png-v50")
 
     
-    @st.cache_resource
     def load_model_and_metadata():
         def _load(p1, p2): return joblib.load(p1) if os.path.exists(p1) else joblib.load(p2)
         model_lvl1 = _load("models/model_level1.pkl", "model_level1.pkl")
@@ -638,9 +637,20 @@ with st.sidebar:
         st.error("Failed to load models or feature columns.")
         st.exception(e)
 
-# -------------------- RAW probability output --------------------
-# No probability calibration or class-wise threshold files are loaded.
-# Both classifiers use their native LightGBM predict_proba() outputs directly.
+# 仅载入类别阈值；概率校准器不再加载或使用。
+def _load_joblib_pair(primary_path, fallback_path):
+    p = primary_path if os.path.exists(primary_path) else fallback_path
+    return joblib.load(p) if os.path.exists(p) else None
+
+def load_classwise_threshold(level_name: str):
+    return _load_joblib_pair(
+        f"models/thr_{level_name}.joblib",
+        f"thr_{level_name}.joblib"
+    )
+
+# 保留原有阈值文件；Level 2 分类继续使用其类别阈值。
+thr_L1 = load_classwise_threshold("Level1")
+thr_L2 = load_classwise_threshold("Level2")
 # -------------------- 缺失值处理 --------------------
 # Do NOT impute missing analytical values at website inference time.
 # LightGBM handles NaN natively: when a feature such as MnO or V2O3 is missing,
@@ -648,7 +658,50 @@ with st.sidebar:
 # prediction is determined from the remaining available features.
 # IMPORTANT: NaN is intentionally preserved; it is not replaced by 0 or by KNN estimates.
 
+# 载入 Tukey 区间（若存在）
+#q_low_L2  = _load_joblib_pair("models/q_low_Level2.joblib",  "q_low_Level2.joblib")
+#q_high_L2 = _load_joblib_pair("models/q_high_Level2.joblib", "q_high_Level2.joblib")
+
+
+# -------------------- RAW 概率 + 原有类别阈值工具 --------------------
+# 不对 predict_proba() 输出进行任何概率校准。
+def predict_with_classwise_thresholds(
+    proba_raw: np.ndarray,
+    classes: np.ndarray,
+    thr_dict: dict | None,
+    unknown_label: str,
+    margins: dict | None = None
+):
+    C = proba_raw.shape[1]
+    thr_dict = thr_dict or {}
+    preds, pmax = [], []
+    for row in proba_raw:
+        cand = [j for j, cls in enumerate(classes) if row[j] >= float(thr_dict.get(str(cls), 0.5))]
+        if not cand:
+            preds.append(unknown_label); pmax.append(float(np.nanmax(row))); continue
+        j_best = max(cand, key=lambda k: row[k])
+        best_score = row[j_best]
+        order = np.argsort(row)[::-1]
+        j_second = order[1] if C >= 2 else j_best
+        gap = best_score - row[j_second]
+        ok_margin = True
+        if margins is not None:
+            m = float(margins.get(str(classes[j_best]), 0.0))
+            ok_margin = (gap >= m)
+        if ok_margin:
+            preds.append(classes[j_best]); pmax.append(best_score)
+        else:
+            preds.append(unknown_label); pmax.append(best_score)
+    return np.array(preds, dtype=object), np.array(pmax, dtype=float)
+
 # -------------------- 其他工具函数 --------------------
+def apply_threshold(proba: np.ndarray, classes: np.ndarray, thr: float):
+    max_idx = np.argmax(proba, axis=1)
+    max_val = proba[np.arange(proba.shape[0]), max_idx]
+    pred = np.where(max_val >= thr, classes[max_idx], ABSTAIN_LABEL)
+    return pred, max_val
+
+
 # 结果下载通用
 def _save_fig_as_png_bytes(fig, dpi=220):
     buf = BytesIO()
@@ -1163,7 +1216,7 @@ if uploaded_file is not None:
         prob1 = model_lvl1.predict_proba(df_input_L1)
         classes1 = model_lvl1.classes_.astype(str)
 
-        # ===== RAW probabilities: no calibration or thresholding =====
+        # ===== RAW 概率（不进行概率校准）=====
         prob1_use = prob1
 
         pred1_idx = np.argmax(prob1_use, axis=1)
@@ -1182,18 +1235,21 @@ if uploaded_file is not None:
         if mask_lvl2.any():
             pr2 = model_lvl2.predict_proba(df_input_L2[mask_lvl2])
 
-            # ===== RAW probabilities and direct argmax prediction =====
-            # Do not calibrate probabilities and do not apply class-wise/global thresholds.
+            # ===== RAW 概率（不进行概率校准）；后续仍应用原有类别阈值 =====
             pr2_use = pr2
 
-            pred2_idx = np.argmax(pr2_use, axis=1)
-            pred2_masked = classes2[pred2_idx]
-            p2max_masked = pr2_use[np.arange(len(pred2_idx)), pred2_idx]
+            if thr_L2 is not None:
+                pred2_masked, p2max_masked = predict_with_classwise_thresholds(
+                    proba_raw=pr2_use, classes=classes2, thr_dict=thr_L2,
+                    unknown_label=ABSTAIN_LABEL
+                )
+            else:
+                pred2_masked, p2max_masked = apply_threshold(pr2_use, classes2, 0.5)
 
             prob2_raw[mask_lvl2] = pr2_use
             pred2_label[mask_lvl2] = pred2_masked
             p2max[mask_lvl2] = p2max_masked
-            p2unk[mask_lvl2] = 0.0
+            p2unk[mask_lvl2] = 1.0 - p2max_masked
 
             # Level2：把 RAW 概率铺回 N 行（其余行填 0）
             prob2_full = np.zeros_like(prob2_raw, dtype=float)
