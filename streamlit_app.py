@@ -610,7 +610,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: calibrated-probabilities-no-cache-no-thresholds-v1")
+    st.caption("Build: Level1-calibrated-Level2-RAW-no-cache-no-thresholds-v1")
 
     
     def load_model_and_metadata():
@@ -648,9 +648,8 @@ def _load_calibrator(level_name: str):
         )
     return joblib.load(calibrator_path)
 
-# 每次 Streamlit 脚本运行时直接加载校准器；不加载任何类别阈值文件。
+# 仅加载 Level 1 校准器；Level 2 不进行概率校准。
 calib_L1 = _load_calibrator("Level1")
-calib_L2 = _load_calibrator("Level2")
 
 def apply_calibrators(proba: np.ndarray, classes: np.ndarray, calibrators: dict):
     """Apply class-wise isotonic calibration, then normalize each probability row."""
@@ -1197,7 +1196,7 @@ if uploaded_file is not None:
         prob1 = model_lvl1.predict_proba(df_input_L1)
         classes1 = model_lvl1.classes_.astype(str)
 
-        # ===== 使用 IsotonicRegression 校准 Level 1 概率 =====
+        # ===== 使用 IsotonicRegression 校准 Level 1 概率；Level 2 保持 RAW =====
         prob1_use = apply_calibrators(prob1, classes1, calib_L1)
 
         pred1_idx = np.argmax(prob1_use, axis=1)
@@ -1216,8 +1215,8 @@ if uploaded_file is not None:
         if mask_lvl2.any():
             pr2 = model_lvl2.predict_proba(df_input_L2[mask_lvl2])
 
-            # ===== 使用 IsotonicRegression 校准 Level 2 概率 =====
-            pr2_use = apply_calibrators(pr2, classes2, calib_L2)
+            # ===== Level 2 使用 RAW 概率：不进行概率校准 =====
+            pr2_use = pr2
             pred2_idx = np.argmax(pr2_use, axis=1)
             pred2_masked = classes2[pred2_idx]
             p2max_masked = pr2_use[np.arange(len(pred2_idx)), pred2_idx]
@@ -1227,7 +1226,7 @@ if uploaded_file is not None:
             p2max[mask_lvl2] = p2max_masked
             p2unk[mask_lvl2] = 1.0 - p2max_masked
 
-            # Level2：把校准后的概率铺回 N 行（其余行填 0）
+            # Level2：把 RAW 概率铺回 N 行（其余行填 0）
             prob2_full = np.zeros_like(prob2_raw, dtype=float)
             prob2_full[mask_lvl2] = pr2_use   
         else:
