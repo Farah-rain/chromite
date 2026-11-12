@@ -638,20 +638,21 @@ with st.sidebar:
         st.error("Failed to load models or feature columns.")
         st.exception(e)
 
-# 载入校准器 & 类阈值（若存在）
+# 仅载入类别阈值；概率校准器不再加载或使用。
 @st.cache_resource
 def _load_joblib_pair(primary_path, fallback_path):
     p = primary_path if os.path.exists(primary_path) else fallback_path
     return joblib.load(p) if os.path.exists(p) else None
 
-def load_calibrator_and_threshold(level_name: str):
-    calib = _load_joblib_pair(f"models/calib_{level_name}.joblib", f"calib_{level_name}.joblib")
-    thr   = _load_joblib_pair(f"models/thr_{level_name}.joblib",   f"thr_{level_name}.joblib")
-    return calib, thr
+def load_classwise_threshold(level_name: str):
+    return _load_joblib_pair(
+        f"models/thr_{level_name}.joblib",
+        f"thr_{level_name}.joblib"
+    )
 
-calib_L1, thr_L1 = load_calibrator_and_threshold("Level1")
-
-calib_L2, thr_L2 = load_calibrator_and_threshold("Level2")
+# 保留原有阈值文件；Level 2 分类继续使用其类别阈值。
+thr_L1 = load_classwise_threshold("Level1")
+thr_L2 = load_classwise_threshold("Level2")
 # -------------------- 缺失值处理 --------------------
 # Do NOT impute missing analytical values at website inference time.
 # LightGBM handles NaN natively: when a feature such as MnO or V2O3 is missing,
@@ -664,30 +665,19 @@ calib_L2, thr_L2 = load_calibrator_and_threshold("Level2")
 #q_high_L2 = _load_joblib_pair("models/q_high_Level2.joblib", "q_high_Level2.joblib")
 
 
-# -------------------- 概率校准 & 类阈值工具 --------------------
-def apply_calibrators(proba: np.ndarray, classes: np.ndarray, calibrators: dict | None):
-    if calibrators is None:
-        return proba
-    P = np.zeros_like(proba, dtype=float)
-    for j, cls in enumerate(classes):
-        ir = calibrators.get(str(cls)) if isinstance(calibrators, dict) else None
-        P[:, j] = (ir.transform(proba[:, j]) if ir is not None else proba[:, j])
-    eps = 1e-12
-    row_sum = P.sum(axis=1, keepdims=True)
-    P = (P + eps) / np.maximum(row_sum + eps * P.shape[1], eps)
-    return P
-
+# -------------------- RAW 概率 + 原有类别阈值工具 --------------------
+# 不对 predict_proba() 输出进行任何概率校准。
 def predict_with_classwise_thresholds(
-    proba_cal: np.ndarray,
+    proba_raw: np.ndarray,
     classes: np.ndarray,
     thr_dict: dict | None,
     unknown_label: str,
     margins: dict | None = None
 ):
-    C = proba_cal.shape[1]
+    C = proba_raw.shape[1]
     thr_dict = thr_dict or {}
     preds, pmax = [], []
-    for row in proba_cal:
+    for row in proba_raw:
         cand = [j for j, cls in enumerate(classes) if row[j] >= float(thr_dict.get(str(cls), 0.5))]
         if not cand:
             preds.append(unknown_label); pmax.append(float(np.nanmax(row))); continue
@@ -1228,7 +1218,7 @@ if uploaded_file is not None:
         prob1 = model_lvl1.predict_proba(df_input_L1)
         classes1 = model_lvl1.classes_.astype(str)
 
-        # ===== RAW 概率（不校准）=====
+        # ===== RAW 概率（不进行概率校准）=====
         prob1_use = prob1
 
         pred1_idx = np.argmax(prob1_use, axis=1)
@@ -1247,12 +1237,12 @@ if uploaded_file is not None:
         if mask_lvl2.any():
             pr2 = model_lvl2.predict_proba(df_input_L2[mask_lvl2])
 
-            # ===== RAW 概率（不校准）=====
+            # ===== RAW 概率（不进行概率校准）；后续仍应用原有类别阈值 =====
             pr2_use = pr2
 
             if thr_L2 is not None:
                 pred2_masked, p2max_masked = predict_with_classwise_thresholds(
-                    proba_cal=pr2_use, classes=classes2, thr_dict=thr_L2,
+                    proba_raw=pr2_use, classes=classes2, thr_dict=thr_L2,
                     unknown_label=ABSTAIN_LABEL
                 )
             else:
