@@ -610,7 +610,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: Level1-calibrated-Level2-RAW-no-cache-no-thresholds-v1")
+    st.caption("Build: L1-calibrated-display-RAW-routing-L2-RAW-no-cache-no-thresholds-v2")
 
     
     def load_model_and_metadata():
@@ -1196,13 +1196,20 @@ if uploaded_file is not None:
         prob1 = model_lvl1.predict_proba(df_input_L1)
         classes1 = model_lvl1.classes_.astype(str)
 
-        # ===== 使用 IsotonicRegression 校准 Level 1 概率；Level 2 保持 RAW =====
+        # ===== Level 1：显示校准概率，但分类及 Level 2 路由使用 RAW 概率 =====
+        # Calibrated probabilities are retained for display and reporting.
         prob1_use = apply_calibrators(prob1, classes1, calib_L1)
 
-        pred1_idx = np.argmax(prob1_use, axis=1)
-        pred1_label = classes1[pred1_idx]
-        p1max = prob1_use[np.arange(N), pred1_idx]
-        # ========= Level 2（仅 Extraterrestrial）=========
+        # Select the Level 1 class from the original LightGBM probabilities.
+        # This prevents isotonic calibration from changing the hierarchical routing.
+        pred1_idx_raw = np.argmax(prob1, axis=1)
+        pred1_label = classes1[pred1_idx_raw]
+
+        # Report the calibrated probability corresponding to the RAW-selected class.
+        # The full calibrated class probabilities are also shown in the detailed table.
+        p1max = prob1_use[np.arange(N), pred1_idx_raw]
+
+        # ========= Level 2（仅 RAW Level 1 判定为 Extraterrestrial 的样品）=========
         _pred1_norm = pd.Series(pred1_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
         mask_lvl2 = (_pred1_norm == "extraterrestrial").to_numpy()
 
@@ -1329,6 +1336,11 @@ if uploaded_file is not None:
 
         # -------------------- Compact prediction table --------------------
         st.subheader("🧾 Prediction Results")
+        st.caption(
+            "Level 1 class assignments and Level 2 routing are based on RAW Level 1 probabilities. "
+            "Displayed Level 1 class probabilities are isotonic-calibrated. "
+            "Level 2 probabilities are RAW."
+        )
         df_preview = pd.DataFrame({
             "Index": df_display["Index"],
             "Level 1 prediction": df_display["Level1_Pred"],
