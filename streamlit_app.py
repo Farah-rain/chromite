@@ -610,7 +610,7 @@ PALETTE = list(chain(plt.get_cmap("tab20").colors, plt.get_cmap("tab20c").colors
 with st.sidebar:
     st.subheader("Display / Models")
     chart_scale = st.slider("Chart scale (A±)", 0.65, 1.20, 0.80, 0.05)
-    st.caption("Build: L1-calibrated-display-RAW-routing-L2-RAW-no-cache-no-thresholds-v2")
+    st.caption("Build: conditional-L1-probability-display-RAW-routing-L2-RAW-no-cache-no-thresholds-v3")
 
     
     def load_model_and_metadata():
@@ -1196,18 +1196,26 @@ if uploaded_file is not None:
         prob1 = model_lvl1.predict_proba(df_input_L1)
         classes1 = model_lvl1.classes_.astype(str)
 
-        # ===== Level 1：显示校准概率，但分类及 Level 2 路由使用 RAW 概率 =====
-        # Calibrated probabilities are retained for display and reporting.
-        prob1_use = apply_calibrators(prob1, classes1, calib_L1)
-
-        # Select the Level 1 class from the original LightGBM probabilities.
-        # This prevents isotonic calibration from changing the hierarchical routing.
+        # ===== Level 1：按 RAW 分类结果选择概率展示方式 =====
+        # Always determine the Level 1 class and Level 2 routing from RAW probabilities.
         pred1_idx_raw = np.argmax(prob1, axis=1)
         pred1_label = classes1[pred1_idx_raw]
 
-        # Report the calibrated probability corresponding to the RAW-selected class.
-        # The full calibrated class probabilities are also shown in the detailed table.
-        p1max = prob1_use[np.arange(N), pred1_idx_raw]
+        # Calculate calibrated probabilities for Level 1.
+        prob1_calibrated = apply_calibrators(prob1, classes1, calib_L1)
+
+        # Conditional display rule:
+        # - RAW-predicted terrestrial samples: display calibrated probabilities.
+        # - RAW-predicted extraterrestrial samples: display RAW probabilities.
+        # This is a mixed display convention, not a single calibrated probability output.
+        raw_pred1_norm = pd.Series(pred1_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
+        terrestrial_raw_mask = (raw_pred1_norm == "terrestrial").to_numpy()
+
+        prob1_display = prob1.copy()
+        prob1_display[terrestrial_raw_mask] = prob1_calibrated[terrestrial_raw_mask]
+
+        # The displayed predicted probability corresponds to the RAW-selected class.
+        p1max = prob1_display[np.arange(N), pred1_idx_raw]
 
         # ========= Level 2（仅 RAW Level 1 判定为 Extraterrestrial 的样品）=========
         _pred1_norm = pd.Series(pred1_label, dtype="object").astype("string").str.strip().str.lower().fillna("")
@@ -1303,7 +1311,7 @@ if uploaded_file is not None:
         prob1_cols = []
         for i, c in enumerate(classes1):
             col_name = str(display_level1_label(c)).strip().capitalize()
-            df_display[col_name] = prob1_use[:, i].astype(float)
+            df_display[col_name] = prob1_display[:, i].astype(float)
             prob1_cols.append(col_name)
 
         prob2_cols = []
@@ -1325,7 +1333,7 @@ if uploaded_file is not None:
         # Group-level statistics are still used by the optional data-sharing panel,
         # but are no longer repeated as columns in the analytical/probability table.
         l1_label, l1_share, l1_mean = level_group_stats(
-            labels=pred1_label, classes=classes1, prob_by_class=prob1_use,
+            labels=pred1_label, classes=classes1, prob_by_class=prob1_display,
             p_max=p1max, p_unknown=None, fill_unknown_for_empty=False
         )
 
@@ -1338,7 +1346,8 @@ if uploaded_file is not None:
         st.subheader("🧾 Prediction Results")
         st.caption(
             "Level 1 class assignments and Level 2 routing are based on RAW Level 1 probabilities. "
-            "Displayed Level 1 class probabilities are isotonic-calibrated. "
+            "For RAW-predicted terrestrial samples, Level 1 probabilities are displayed after isotonic calibration; "
+            "for RAW-predicted extraterrestrial samples, Level 1 RAW probabilities are displayed. "
             "Level 2 probabilities are RAW."
         )
         df_preview = pd.DataFrame({
