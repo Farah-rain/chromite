@@ -9,7 +9,7 @@ from itertools import chain
 from matplotlib.patches import Patch
 
 # -------------------- 页面配置 --------------------
-st.set_page_config(page_title="Chromite Provenance Classifier", layout="wide")
+st.set_page_config(page_title="Chrome Spinel Provenance Classifier", layout="wide")
 def render_hero_banner():
     hero_path = "chromite_space_banner.png" if os.path.exists("chromite_space_banner.png") else None
 
@@ -22,9 +22,9 @@ def render_hero_banner():
             <div class="hero-banner-wrap"
                  style="background-image: url('data:image/png;base64,{hero_b64}');">
                 <div class="hero-copy">
-                    <div class="hero-banner-title">Chromite Provenance Classifier</div>
+                    <div class="hero-banner-title">Chrome Spinel Provenance Classifier</div>
                     <div class="hero-banner-subtitle">
-                        Machine-learning classification based on chromite compositions.
+                        Machine-learning classification based on chrome spinel compositions.
                     </div>
                 </div>
             </div>
