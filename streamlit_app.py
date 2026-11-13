@@ -1118,7 +1118,7 @@ def level_group_stats(labels, classes, prob_by_class, p_max=None, p_unknown=None
     return top_label, top_share_str, top_mean_prob
 
 # -------------------- 输入模板下载 --------------------
-template_path = "chromite_input_template.xlsx"
+template_path = "chrome_spinel_input_template.xlsx"
 if os.path.exists(template_path):
     with open(template_path, "rb") as f:
         template_bytes = f.read()
@@ -1141,15 +1141,15 @@ if os.path.exists(template_path):
     )
 
     st.download_button(
-        "📥 Download input template (Excel)",
+        "📥 Download chrome spinel input template (Excel)",
         data=template_bytes,
-        file_name="chromite_input_template.xlsx",
+        file_name="chrome_spinel_input_template.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         key="download_input_template"
     )
 else:
     st.warning(
-        "Input template file not found. Please add chromite_input_template.xlsx "
+        "Input template file not found. Please add chrome_spinel_input_template.xlsx "
         "to the same repository folder as streamlit_app.py."
     )
 
